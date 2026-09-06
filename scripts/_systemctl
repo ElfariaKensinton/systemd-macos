@@ -46,7 +46,13 @@ case $state in
     _describe 'command' commands
     ;;
   unit)
-    local command=${words[2]}
+    local command word
+    for word in "${words[@]:2}"; do
+      case $word in
+        --*) continue ;;
+        *) command=$word; break ;;
+      esac
+    done
     case $command in
       start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
         compadd -- $(_systemd_macos_units)
