@@ -135,12 +135,15 @@ func outputStatus(_ output: String, noPager: Bool) {
     let environment = ProcessInfo.processInfo.environment
     let configuredPager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"]
 
+    // systemd-style: explicit pager settings win. With no setting, use the
+    // native macOS terminal pager rather than hard-coding less.
     if noPager || isatty(STDOUT_FILENO) != 1 || configuredPager == "cat" {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let pagerCommand = (configuredPager?.isEmpty == false ? configuredPager! : "less -R")
+    let pagerSpec = configuredPager?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let pagerCommand = (pagerSpec?.isEmpty == false ? pagerSpec! : "/usr/bin/more")
         .split(whereSeparator: { $0.isWhitespace })
         .map(String.init)
 
@@ -149,25 +152,31 @@ func outputStatus(_ output: String, noPager: Bool) {
         return
     }
 
-    let process = Process()
-    if pagerExecutable.hasPrefix("/") {
-        process.executableURL = URL(fileURLWithPath: pagerExecutable)
-        process.arguments = Array(pagerCommand.dropFirst())
-    } else {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = pagerCommand
-    }
-
-    let input = Pipe()
-    process.standardInput = input
-    process.standardOutput = FileHandle.standardOutput
-    process.standardError = FileHandle.standardError
+    let tempURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("systemctl-status-\(ProcessInfo.processInfo.processIdentifier).txt")
 
     do {
+        try output.write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let process = Process()
+        if pagerExecutable.hasPrefix("/") {
+            process.executableURL = URL(fileURLWithPath: pagerExecutable)
+            process.arguments = Array(pagerCommand.dropFirst()) + [tempURL.path]
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = pagerCommand + [tempURL.path]
+        }
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
         try process.run()
-        input.fileHandleForWriting.write(output.data(using: .utf8) ?? Data())
-        input.fileHandleForWriting.closeFile()
         process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+        }
     } catch {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
     }
@@ -200,7 +209,13 @@ do {
 
     switch options.action {
     case .status:
-        if !options.quiet { outputStatus(response.output, noPager: options.noPager) }
+        if !options.quiet {
+            if response.output.isEmpty {
+                printStatuses(response.statuses, noLegend: true)
+            } else {
+                outputStatus(response.output, noPager: options.noPager)
+            }
+        }
     case .listUnits, .listUnitFiles:
         if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
     case .isActive:
