@@ -68,7 +68,7 @@ The resulting binaries are:
 The installer builds the release binaries, installs them under `/usr/local/bin`, creates the systemd-style unit and state directories, and registers a minimal LaunchDaemon whose only responsibility is starting and supervising the systemd-macos manager.
 
 ```sh
-sudo ./scripts/install.sh
+sudo sh scripts/install.sh
 ```
 
 After installation:
