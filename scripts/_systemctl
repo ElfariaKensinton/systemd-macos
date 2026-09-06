@@ -10,38 +10,45 @@ _systemd_macos_units() {
   print -rl -- "${units[@]}"
 }
 
+local -a commands
+commands=(
+  'start:Start units'
+  'stop:Stop units'
+  'restart:Restart units'
+  'reload:Reload units'
+  'status:Show runtime status'
+  'enable:Enable units'
+  'disable:Disable units'
+  'is-active:Check whether units are active'
+  'is-enabled:Check whether units are enabled'
+  'daemon-reload:Reload unit files'
+  'list-units:List loaded units'
+  'list-unit-files:List installed unit files'
+  'cat:Show unit file contents'
+  'show:Show machine-readable properties'
+)
+
 _arguments -C \
-  '(- 1 *)'{--help,-h}'[Show help]' \
-  '(- 1 *)--version[Show version]' \
+  '--now[Enable/disable and immediately start/stop]' \
+  '(-q --quiet)'{-q,--quiet}'[Suppress successful output]' \
+  '--no-legend[Omit headers]' \
+  '--no-pager[Disable the pager]' \
+  '--system[Use system scope]' \
+  '--user[Use user unit directory where supported]' \
+  '--plain[Accepted for systemctl compatibility]' \
+  '(-h --help)'{-h,--help}'[Show help]' \
+  '--version[Show version]' \
   '1:command:->command' \
   '*:unit:->unit'
 
 case $state in
   command)
-    local -a commands
-    commands=(
-      'start:Start units'
-      'stop:Stop units'
-      'restart:Restart units'
-      'reload:Reload units'
-      'status:Show runtime status'
-      'enable:Enable units'
-      'disable:Disable units'
-      'is-active:Check whether units are active'
-      'is-enabled:Check whether units are enabled'
-      'daemon-reload:Reload unit files'
-      'list-units:List loaded units'
-      'list-unit-files:List installed unit files'
-      'cat:Show unit file contents'
-      'show:Show machine-readable properties'
-    )
     _describe 'command' commands
     ;;
   unit)
     local command=${words[2]}
     case $command in
       start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-        _message 'unit'
         compadd -- $(_systemd_macos_units)
         ;;
     esac
