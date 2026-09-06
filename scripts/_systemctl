@@ -1,23 +1,24 @@
 #compdef systemctl
 
 _systemd_macos_units() {
-  local -a units files
+  local -a units
+  local dir file
 
   if (( $+commands[systemctl] )); then
-    units=( ${(f)"$(command systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}' )"} )
-    units=( ${units:#} )
-    if (( ${#units} )); then
-      _describe 'unit' units
-      return 0
-    fi
+    units=( ${(f)"$(command systemctl list-unit-files --no-legend 2>/dev/null | awk 'NF {print $1}' )"} )
   fi
 
-  files=(
-    /etc/systemd/system/*.service(N)
-    /usr/local/lib/systemd/system/*.service(N)
-  )
-  units=("${files:t}")
-  _describe 'unit' units
+  if (( ${#units} == 0 )); then
+    for dir in /etc/systemd/system /usr/local/lib/systemd/system; do
+      for file in "$dir"/*.service(N); do
+        [[ -e "$file" ]] || continue
+        units+=("${file:t}")
+      done
+    done
+  fi
+
+  (( ${#units} )) || return 0
+  compadd -Q -- $units
 }
 
 local -a commands
@@ -53,15 +54,17 @@ opts=(
 
 if (( CURRENT == 2 )); then
   _describe 'command' commands
-  _arguments $opts
-  return
+  return 0
 fi
 
-local command word
+local word command
 for word in "${words[2,-1]}"; do
   case $word in
     --*) continue ;;
-    *) command=$word; break ;;
+    start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
+      command=$word
+      break
+      ;;
   esac
 done
 
@@ -70,6 +73,6 @@ case $command in
     _systemd_macos_units
     ;;
   *)
-    _arguments $opts '*:unit:->unit'
+    _arguments $opts
     ;;
 esac
