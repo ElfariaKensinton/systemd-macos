@@ -133,24 +133,30 @@ func outputStatus(_ output: String, noPager: Bool) {
     guard !output.isEmpty else { return }
 
     let environment = ProcessInfo.processInfo.environment
-    let pager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "less -R"
-    let trimmedPager = pager.trimmingCharacters(in: .whitespacesAndNewlines)
-    let usePager = !noPager && isatty(STDOUT_FILENO) == 1 && trimmedPager != "cat" && !trimmedPager.isEmpty
+    let configuredPager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"]
 
-    guard usePager else {
+    if noPager || isatty(STDOUT_FILENO) != 1 || configuredPager == "cat" {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let command = trimmedPager.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-    guard !command.isEmpty else {
+    let pagerCommand = (configuredPager?.isEmpty == false ? configuredPager! : "less -R")
+        .split(whereSeparator: { $0.isWhitespace })
+        .map(String.init)
+
+    guard let pagerExecutable = pagerCommand.first else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = command
+    if pagerExecutable.hasPrefix("/") {
+        process.executableURL = URL(fileURLWithPath: pagerExecutable)
+        process.arguments = Array(pagerCommand.dropFirst())
+    } else {
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = pagerCommand
+    }
 
     let input = Pipe()
     process.standardInput = input
@@ -159,9 +165,7 @@ func outputStatus(_ output: String, noPager: Bool) {
 
     do {
         try process.run()
-        if let data = output.data(using: .utf8) {
-            input.fileHandleForWriting.write(data)
-        }
+        input.fileHandleForWriting.write(output.data(using: .utf8) ?? Data())
         input.fileHandleForWriting.closeFile()
         process.waitUntilExit()
     } catch {
