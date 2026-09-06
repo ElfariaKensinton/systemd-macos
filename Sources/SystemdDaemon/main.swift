@@ -7,6 +7,7 @@ import Darwin
 final class UnixServer {
     private let manager: ServiceManager
     private let codec = LineCodec()
+    private let parser = UnitParser()
     private var socketFD: Int32 = -1
 
     init(manager: ServiceManager) { self.manager = manager }
@@ -210,12 +211,15 @@ final class UnixServer {
             default: stateText = "inactive (dead)"
             }
 
+            let unit = status.path.flatMap { try? parser.parse(url: URL(fileURLWithPath: $0)) }
             var lines: [String] = []
+
             if let description = status.description, !description.isEmpty {
                 lines.append("\(marker) \(status.name) - \(description)")
             } else {
                 lines.append("\(marker) \(status.name)")
             }
+
             let enabledText = status.enabled ? "enabled" : "disabled"
             let path = status.path ?? "/etc/systemd/system/\(status.name)"
             lines.append("     Loaded: loaded (\(path); \(enabledText))")
@@ -228,8 +232,32 @@ final class UnixServer {
             }
             lines.append(activeLine)
 
+            if let trigger = socketTrigger(for: status) {
+                lines.append("TriggeredBy: ● \(trigger)")
+            }
+
+            if let documentation = unit?.documentation {
+                for item in documentation where !item.isEmpty {
+                    lines.append("     Docs: \(item)")
+                }
+            }
+
+            if let startPre = unit?.service.execStartPre {
+                for command in startPre where !command.isEmpty {
+                    lines.append("    Process: \(status.mainPID == 0 ? 0 : status.mainPID) ExecStartPre=\(command) (code=exited, status=0/SUCCESS)")
+                }
+            }
+
             if status.mainPID != 0 {
-                lines.append("   Main PID: \(status.mainPID)")
+                lines.append("   Main PID: \(status.mainPID) (\(processName(status.mainPID) ?? "unknown"))")
+                let metrics = processMetrics(status.mainPID)
+                lines.append("      Tasks: \(metrics.tasks)")
+                lines.append("     Memory: \(formatMemory(kilobytes: metrics.rssKB))")
+                lines.append("        CPU: \(metrics.cpuTime)")
+                lines.append("     CGroup: /system.slice/\(status.name)")
+                if let command = processCommand(status.mainPID) {
+                    lines.append("         └─\(status.mainPID) \"\(command)\"")
+                }
             }
 
             let stdoutURL = SystemdPaths.logDirectory.appendingPathComponent("\(status.name).stdout.log")
@@ -251,6 +279,64 @@ final class UnixServer {
             blocks.append(lines.joined(separator: "\n"))
         }
         return blocks.joined(separator: "\n\n")
+    }
+
+    private func socketTrigger(for status: UnitStatus) -> String? {
+        let base = status.name.hasSuffix(".service") ? String(status.name.dropLast(".service".count)) : status.name
+        let candidate = "\(base).socket"
+        guard let directory = status.path.map({ URL(fileURLWithPath: $0).deletingLastPathComponent() }) else { return nil }
+        return FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path) ? candidate : nil
+    }
+
+    private func runPS(_ arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    private func processName(_ pid: Int32) -> String? {
+        guard let value = runPS(["-p", String(pid), "-o", "comm="]), !value.isEmpty else { return nil }
+        return URL(fileURLWithPath: value).lastPathComponent
+    }
+
+    private func processCommand(_ pid: Int32) -> String? {
+        guard let value = runPS(["-p", String(pid), "-o", "command="]), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private func processMetrics(_ pid: Int32) -> (tasks: Int, rssKB: Int64, cpuTime: String) {
+        var tasks = 1
+        if let threadOutput = runPS(["-M", "-p", String(pid), "-o", "tid="]) {
+            let count = threadOutput.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+            if count > 0 { tasks = count }
+        }
+
+        var rssKB: Int64 = 0
+        var cpuTime = "0s"
+        if let metricOutput = runPS(["-p", String(pid), "-o", "rss=,time="]) {
+            let pieces = metricOutput.split(whereSeparator: { $0.isWhitespace })
+            if let first = pieces.first { rssKB = Int64(first) ?? 0 }
+            if pieces.count > 1 { cpuTime = pieces.dropFirst().joined(separator: " ") }
+        }
+        return (tasks, rssKB, cpuTime)
+    }
+
+    private func formatMemory(kilobytes: Int64) -> String {
+        if kilobytes < 1024 { return "\(kilobytes)K" }
+        let megabytes = Double(kilobytes) / 1024.0
+        if megabytes < 1024 { return String(format: "%.1fM", megabytes) }
+        return String(format: "%.1fG", megabytes / 1024.0)
     }
 
     private func relativeDuration(from date: Date) -> String {
