@@ -47,7 +47,17 @@ final class UnixServer {
 
     private func handle(client: Int32) {
         defer { close(client) }
-        let input = FileHandle(fileDescriptor: client, closeOnDealloc: false).readDataToEndOfFile()
+
+        // IPC is newline-framed. Do not wait for EOF: a client may keep the
+        // connection open while waiting for the response.
+        let handle = FileHandle(fileDescriptor: client, closeOnDealloc: false)
+        var input = Data()
+        while input.firstIndex(of: 0x0A) == nil {
+            let chunk = handle.readData(ofLength: 4096)
+            if chunk.isEmpty { return }
+            input.append(chunk)
+        }
+
         guard let newline = input.firstIndex(of: 0x0A) else { return }
         let requestData = input[..<newline]
         do {
@@ -102,7 +112,7 @@ final class UnixServer {
         case .show:
             let values = try request.units.map { try manager.show($0) }
             let output = values.map { dictionary in
-                dictionary.keys.sorted().map { "\($0)=\(dictionary[$0] ?? "")" }.joined(separator: "\n")
+                dictionary.keys.sorted().map { "\($0)=\(dictionary[$0] ?? \"\")" }.joined(separator: "\n")
             }.joined(separator: "\n")
             return IPCResponse(exitCode: 0, output: output)
         }
