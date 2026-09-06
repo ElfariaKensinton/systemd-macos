@@ -112,11 +112,9 @@ func urls(for unit: String) -> [URL] {
     ]
 }
 
-func tail(_ text: String, count: Int) -> String {
-    guard count > 0 else { return "" }
-    return Array(text.components(separatedBy: .newlines).suffix(count + 1))
-        .joined(separator: "\n")
-        .trimmingCharacters(in: .newlines)
+func tail(_ lines: [String], count: Int) -> [String] {
+    guard count > 0 else { return [] }
+    return Array(lines.suffix(count))
 }
 
 func discoverUnits() -> [String] {
@@ -127,12 +125,37 @@ func discoverUnits() -> [String] {
     })).sorted()
 }
 
+private let stampFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "MMM dd HH:mm:ss"
+    return formatter
+}()
+
+private func modificationDate(of url: URL) -> Date {
+    (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? Date()
+}
+
+// Render a log file's tail the same way `systemctl status` does — real
+// journalctl output is "<timestamp> <unit>[<pid>]: <message>" per line, not
+// the raw file contents. Dumping the raw file (as this used to do) meant
+// `systemctl status` and `journalctl` showed the exact same underlying
+// lines in two different, inconsistent formats. journalctl runs as its own
+// process with no access to the daemon's in-memory PID table, so PID is
+// omitted the same way systemctl status omits "Main PID" when unknown.
+func formattedLines(unit: String, url: URL, lines: Int) -> [String] {
+    guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+    let rawLines = text.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }).map(String.init)
+    let stamp = stampFormatter.string(from: modificationDate(of: url))
+    return tail(rawLines, count: lines).map { "\(stamp) \(unit): \($0)" }
+}
+
 func printLogs(_ units: [String], lines: Int) {
     for unit in units {
         for url in urls(for: unit) {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let output = tail(text, count: lines)
-            if !output.isEmpty { print(output) }
+            for line in formattedLines(unit: unit, url: url, lines: lines) {
+                print(line)
+            }
         }
     }
     fflush(stdout)
@@ -158,7 +181,10 @@ func follow(_ units: [String]) -> Never {
                     let data = handle.readDataToEndOfFile()
                     if !data.isEmpty {
                         if let text = String(data: data, encoding: .utf8) {
-                            print(text, terminator: "")
+                            let stamp = stampFormatter.string(from: modificationDate(of: url))
+                            for line in text.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }) {
+                                print("\(stamp) \(unit): \(line)")
+                            }
                             fflush(stdout)
                         }
                         offsets[url.path] = oldOffset + UInt64(data.count)
