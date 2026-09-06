@@ -21,8 +21,8 @@ _systemd_macos_units() {
   _describe 'unit' units
 }
 
-local -a commands
-commands=(
+local -a systemctl_commands
+systemctl_commands=(
   'start:Start units'
   'stop:Stop units'
   'restart:Restart units'
@@ -46,7 +46,7 @@ opts=(
   '--no-legend[Omit headers]'
   '--no-pager[Disable the pager]'
   '--system[Use system scope]'
-  '--user[Use user scope]' 
+  '--user[Use user scope]'
   '--plain[Accepted for systemctl compatibility]'
   '(-h --help)'{-h,--help}'[Show help]'
   '--version[Show version]'
@@ -58,6 +58,6 @@ _arguments -s -C $opts \
 
 case $state in
   command)
-    _describe 'command' commands
+    _describe 'command' systemctl_commands
     ;;
 esac
