@@ -20,8 +20,9 @@ _systemd_macos_unit_words() {
 }
 
 _systemctl() {
-    local cur command i word
+    local cur prev command i word
     cur=${COMP_WORDS[COMP_CWORD]}
+    prev=${COMP_WORDS[COMP_CWORD-1]}
     command=
 
     for ((i=1; i<COMP_CWORD; i++)); do
@@ -33,6 +34,13 @@ _systemctl() {
                 ;;
         esac
     done
+
+    case $prev in
+        start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
+            _systemd_macos_unit_words "$cur"
+            return 0
+            ;;
+    esac
 
     if [[ -n $command ]]; then
         _systemd_macos_unit_words "$cur"
