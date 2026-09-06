@@ -126,7 +126,7 @@ public final class ServiceManager: @unchecked Sendable {
         lock.unlock()
 
         if let command = unit.service.execStop.first {
-            _ = try? run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory)
+            _ = try? run(command, unit: unit)
         }
 
         if let process, process.isRunning {
@@ -202,15 +202,16 @@ public final class ServiceManager: @unchecked Sendable {
 
     private func launch(_ unit: UnitFile) throws {
         for command in unit.service.execStartPre {
-            _ = try run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory)
+            _ = try run(command, unit: unit)
         }
         guard let command = unit.service.execStart.first else {
             lock.lock(); runtime[unit.name] = Runtime(state: "exited", result: "success", mainPID: 0); lock.unlock(); return
         }
 
         let process = Process()
-        process.launchPath = "/bin/sh"
-        process.arguments = ["-c", command]
+        let invocation = commandInvocation(command: command, user: unit.service.user, limitNOFILE: unit.service.limitNOFILE)
+        process.launchPath = invocation.executable
+        process.arguments = invocation.arguments
         process.environment = environment(for: unit)
         if let directory = unit.service.workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
 
@@ -239,10 +240,6 @@ public final class ServiceManager: @unchecked Sendable {
         runtime[unit.name]?.state = "active"
         lock.unlock()
 
-        // A systemd-style job must not report success when the control shell
-        // has already terminated unsuccessfully. Poll briefly before returning
-        // from start/restart so immediate ExecStart failures become job errors.
-        // Long-running services continue asynchronously after this window.
         let jobCheckDeadline = Date().addingTimeInterval(1.0)
         while process.isRunning && Date() < jobCheckDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
@@ -265,7 +262,7 @@ public final class ServiceManager: @unchecked Sendable {
         }
 
         for command in unit.service.execStartPost {
-            _ = try? run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory)
+            _ = try? run(command, unit: unit)
         }
     }
 
@@ -291,16 +288,35 @@ public final class ServiceManager: @unchecked Sendable {
         }
     }
 
-    private func run(_ command: String, environment: [String: String], workingDirectory: String?) throws -> Int32 {
+    private func run(_ command: String, unit: UnitFile) throws -> Int32 {
         let process = Process()
-        process.launchPath = "/bin/sh"
-        process.arguments = ["-c", command]
-        process.environment = environment
-        if let workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory) }
+        let invocation = commandInvocation(command: command, user: unit.service.user, limitNOFILE: unit.service.limitNOFILE)
+        process.launchPath = invocation.executable
+        process.arguments = invocation.arguments
+        process.environment = environment(for: unit)
+        if let directory = unit.service.workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
         try process.run()
         process.waitUntilExit()
         if process.terminationStatus != 0 { throw ManagerError.commandFailed(command, process.terminationStatus) }
         return process.terminationStatus
+    }
+
+    private func commandInvocation(command: String, user: String?, limitNOFILE: UInt64?) -> (executable: String, arguments: [String]) {
+        let shellScript: String
+        if let limitNOFILE {
+            shellScript = "ulimit -n \(limitNOFILE) || exit $?\nexec /bin/sh -c \(shellQuote(command))"
+        } else {
+            shellScript = "exec /bin/sh -c \(shellQuote(command))"
+        }
+
+        guard let user, !user.isEmpty, user != "root" else {
+            return ("/bin/sh", ["-c", shellScript])
+        }
+        return ("/usr/bin/sudo", ["-n", "-u", user, "/bin/sh", "-c", shellScript])
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func environment(for unit: UnitFile) -> [String: String] {
