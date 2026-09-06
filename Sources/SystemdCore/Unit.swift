@@ -15,7 +15,7 @@ public enum ServiceType: String, Codable, Sendable {
 
 public enum RestartPolicy: String, Codable, Sendable {
     case no
-    case onSuccess = "on-success"
+    case onSuccess
     case onFailure = "on-failure"
     case onAbnormal = "on-abnormal"
     case onWatchdog = "on-watchdog"
@@ -76,6 +76,7 @@ public struct ServiceConfig: Sendable {
     public var killSignal: Int32 = 15
     public var standardOutput: String = "journal"
     public var standardError: String = "inherit"
+    public var limitNOFILE: UInt64?
 
     public init() {}
 }
