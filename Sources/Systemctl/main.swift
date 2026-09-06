@@ -142,20 +142,32 @@ do {
         response = try request(IPCRequest(action: options.action, units: options.units))
     }
 
+    // systemctl status/is-active/is-enabled intentionally use non-zero exit codes
+    // as state indicators. Their human-readable output must still be printed.
+    switch options.action {
+    case .status:
+        if !options.quiet, !response.output.isEmpty { print(response.output) }
+    case .listUnits, .listUnitFiles:
+        if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
+    case .isActive:
+        if !options.quiet, let first = response.statuses.first {
+            print(first.activeState == "active" ? "active" : "inactive")
+        }
+    case .isEnabled:
+        if !options.quiet, let first = response.statuses.first {
+            print(first.enabled ? "enabled" : "disabled")
+        }
+    case .cat, .show:
+        if !options.quiet, !response.output.isEmpty { print(response.output) }
+    case .daemonReload:
+        if !options.quiet { print("Reloaded systemd-macos unit files.") }
+    default:
+        break
+    }
+
     if response.exitCode != 0 {
         if !options.quiet, let error = response.error { fputs("systemctl: \(error)\n", stderr) }
         exit(response.exitCode)
-    }
-
-    guard !options.quiet else { exit(0) }
-    switch options.action {
-    case .status: print(response.output)
-    case .listUnits, .listUnitFiles: printStatuses(response.statuses, noLegend: options.noLegend)
-    case .isActive: if let first = response.statuses.first { print(first.activeState == "active" ? "active" : "inactive") }
-    case .isEnabled: if let first = response.statuses.first { print(first.enabled ? "enabled" : "disabled") }
-    case .cat, .show: if !response.output.isEmpty { print(response.output) }
-    case .daemonReload: print("Reloaded systemd-macos unit files.")
-    default: break
     }
     exit(0)
 } catch {
