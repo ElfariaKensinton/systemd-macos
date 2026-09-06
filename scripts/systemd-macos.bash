@@ -1,18 +1,7 @@
 # Bash completion for systemd-macos.
-# Install this file where bash-completion discovers it, e.g.
-# /usr/local/share/bash-completion/completions/systemctl and journalctl.
 
 _systemd_macos_units() {
-    local units dir file
-
-    if command -v systemctl >/dev/null 2>&1; then
-        units=$(systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}')
-        if [ -n "$units" ]; then
-            printf '%s\n' "$units"
-            return 0
-        fi
-    fi
-
+    local dir file
     for dir in /etc/systemd/system /usr/local/lib/systemd/system; do
         for file in "$dir"/*.service; do
             [ -e "$file" ] || continue
@@ -22,41 +11,32 @@ _systemd_macos_units() {
 }
 
 _systemd_macos_unit_words() {
-    local word=$1
-    local units
-    units=$(_systemd_macos_units)
-    COMPREPLY=( $(compgen -W "$units" -- "$word") )
+    local cur="$1"
+    local unit
+    COMPREPLY=()
+    while IFS= read -r unit; do
+        [[ $unit == "$cur"* ]] && COMPREPLY+=("$unit")
+    done < <(_systemd_macos_units)
 }
 
 _systemctl() {
-    local cur prev command i
+    local cur command i word
     cur=${COMP_WORDS[COMP_CWORD]}
-    prev=${COMP_WORDS[COMP_CWORD-1]}
     command=
 
     for ((i=1; i<COMP_CWORD; i++)); do
-        case ${COMP_WORDS[i]} in
+        word=${COMP_WORDS[i]}
+        case $word in
             start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-                command=${COMP_WORDS[i]}
+                command=$word
                 break
                 ;;
         esac
     done
 
-    case $prev in
-        --system|--user|--plain|--quiet|-q|--no-legend|--no-pager|--now)
-            COMPREPLY=()
-            return 0
-            ;;
-    esac
-
     if [[ -n $command ]]; then
-        case $command in
-            start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-                _systemd_macos_unit_words "$cur"
-                return 0
-                ;;
-        esac
+        _systemd_macos_unit_words "$cur"
+        return 0
     fi
 
     case $cur in
@@ -66,12 +46,11 @@ _systemctl() {
             ;;
     esac
 
-    if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W 'start stop restart reload status enable disable is-active is-enabled daemon-reload list-units list-unit-files cat show --now --quiet --no-legend --no-pager --system --user --plain --version --help' -- "$cur") )
-        return 0
+    if (( COMP_CWORD == 1 )); then
+        COMPREPLY=( $(compgen -W 'start stop restart reload status enable disable is-active is-enabled daemon-reload list-units list-unit-files cat show' -- "$cur") )
+    else
+        COMPREPLY=()
     fi
-
-    COMPREPLY=()
 }
 
 _journalctl() {
@@ -90,20 +69,14 @@ _journalctl() {
             ;;
     esac
 
-    if [[ $prev == -- ]]; then
-        _systemd_macos_unit_words "$cur"
-        return 0
-    fi
-
     case $cur in
         -*)
             COMPREPLY=( $(compgen -W '-f -u -n -x -e --follow --unit --lines --catalog --pager-end --no-pager --version --help --' -- "$cur") )
-            return 0
+            ;;
+        *)
+            _systemd_macos_unit_words "$cur"
             ;;
     esac
-
-    # Positional unit names are accepted by this implementation too.
-    _systemd_macos_unit_words "$cur"
 }
 
 complete -F _systemctl systemctl
