@@ -18,7 +18,7 @@ _systemd_macos_units() {
   fi
 
   (( ${#units} )) || return 0
-  compadd -Q -- ${units:#?}
+  compadd -Q -- ${units:#}
 }
 
 local -a commands
