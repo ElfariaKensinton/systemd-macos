@@ -109,11 +109,13 @@ sudo systemctl status my-app.service
 
 The repository includes the same style of example in `example/systemd-macos-demo.service`.
 
-## Implemented systemctl surface
+## Feature and compatibility reference
 
-`start`, `stop`, `restart`, `reload`, `status`, `enable`, `disable`, `is-active`, `is-enabled`, `daemon-reload`, `list-units`, `list-unit-files`, `cat`, and `show` are implemented. Common global options `--quiet`, `--no-legend`, `--no-pager`, `--system`, `--user`, `--plain`, `--now`, `--version`, and `--help` are accepted where meaningful.
+The complete unit-file, process-execution, lifecycle, logging, `systemctl`, `journalctl`, platform-limit, and unsupported-feature reference is maintained separately so the README stays focused on project usage:
 
-`reload` currently performs a restart because there is not yet a distinct reload process signal/configuration path. The option is present so the command grammar remains familiar while the reload subsystem is developed separately.
+**[Feature and Unit-File Reference](docs/UNIT-FILES.md)**
+
+That document is the authoritative compatibility boundary for the current implementation.
 
 ## Design constraints
 
