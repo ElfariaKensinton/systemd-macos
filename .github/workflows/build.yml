@@ -134,24 +134,6 @@ jobs:
               --generate-notes
           fi
 
-      - name: Upload stable download aliases
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          cp dist/systemd-macos-arm64.tar.gz dist/systemd-macos-latest-arm64.tar.gz
-          cp dist/systemd-macos-x86_64.tar.gz dist/systemd-macos-latest-x86_64.tar.gz
-          awk '{print $1 "  systemd-macos-latest-arm64.tar.gz"}' dist/systemd-macos-arm64.tar.gz.sha256 > dist/systemd-macos-latest-arm64.tar.gz.sha256
-          awk '{print $1 "  systemd-macos-latest-x86_64.tar.gz"}' dist/systemd-macos-x86_64.tar.gz.sha256 > dist/systemd-macos-latest-x86_64.tar.gz.sha256
-          gh release upload "$TAG" \
-            dist/systemd-macos-latest-arm64.tar.gz \
-            dist/systemd-macos-latest-arm64.tar.gz.sha256 \
-            dist/systemd-macos-latest-x86_64.tar.gz \
-            dist/systemd-macos-latest-x86_64.tar.gz.sha256 \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
-
       - name: Print installation command
         run: |
           echo "Install latest release with:"
