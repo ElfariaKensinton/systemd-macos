@@ -6,15 +6,6 @@ This is **not a port of systemd** and does not embed or link against systemd cod
 
 ## Goals
 
-The compatibility contract is deliberately shaped like systemd:
-
-- Unit files use the familiar INI syntax and section names: `[Unit]`, `[Service]`, `[Install]`.
-- `systemctl` keeps the familiar verb-oriented command line: `start`, `stop`, `restart`, `status`, `enable`, `disable`, `is-active`, `is-enabled`, `daemon-reload`, `list-units`, `list-unit-files`, `cat`, and `show`.
-- Unit names are `.service` units and may be referenced with or without the `.service` suffix.
-- Dependencies use `Requires=`, `Wants=`, `Conflicts=`, `After=`, and `Before=` syntax.
-- Service definitions use common systemd keys such as `Type=`, `ExecStart=`, `ExecStartPre=`, `ExecStartPost=`, `ExecStop=`, `Restart=`, `RestartSec=`, `TimeoutStartSec=`, `TimeoutStopSec=`, `WorkingDirectory=`, `Environment=`, `EnvironmentFile=`, `RemainAfterExit=`, `KillSignal=`, `StandardOutput=`, and `StandardError=`.
-- `systemctl --now enable foo.service` and `systemctl --now disable foo.service` follow the same command shape users already know.
-
 The project intentionally implements a coherent subset first rather than pretending to be a complete reimplementation of every systemd subsystem. The architecture leaves room for additional unit types, socket activation, timers, targets, cgroups, journaling, notification sockets, and user managers without changing the unit-file or CLI grammar.
 
 ## Architecture
