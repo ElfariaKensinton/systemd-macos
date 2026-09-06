@@ -140,23 +140,12 @@ func outputStatus(_ output: String, noPager: Bool) {
         return
     }
 
-    // Match systemd's interactive status feel:
-    //  -F  quit immediately if the content fits on one screen (no pager
-    //      shown for short "systemctl status" output, same as real systemd)
-    //  -R  pass through ANSI color/format escapes instead of showing them raw
-    //  -S  chop long lines instead of soft-wrapping them
-    //  -X  don't clear the screen / leave the rendered status on screen on exit
     let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRSX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = command.first else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    // Feed the pager over a pipe on stdin instead of writing a temp file and
-    // passing its path as an argument. Real systemd does the same, which is
-    // why its pager shows "(standard input)" rather than a leaked file path
-    // in the status line — passing a temp file path made `less` display
-    // that path (and left a file to clean up).
     var pipeFDs: [Int32] = [0, 0]
     guard pipeFDs.withUnsafeMutableBufferPointer({ pipe($0.baseAddress) }) == 0 else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
@@ -165,13 +154,6 @@ func outputStatus(_ output: String, noPager: Bool) {
     let readFD = pipeFDs[0]
     let writeFD = pipeFDs[1]
 
-    // Use posix_spawn (not Foundation.Process, and not fork+execv — fork()
-    // is unavailable in Swift on modern Darwin SDKs) so the pager directly
-    // owns stdio/tty. When spawned as a plain child via Foundation.Process
-    // — especially underneath `sudo` — the child can end up outside the
-    // terminal's foreground process group and never receives keyboard
-    // input, so it renders on screen but looks "stuck" and doesn't respond
-    // to q/arrows.
     let execPath: String
     let argv: [String]
     if executable.hasPrefix("/") {
@@ -184,20 +166,13 @@ func outputStatus(_ output: String, noPager: Bool) {
 
     var pid: pid_t = 0
     let cArgv: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
-    // Build envp explicitly from this process's environment. Passing nil
-    // here does NOT reliably inherit the parent's environment on Darwin —
-    // it can leave the child with an empty/minimal environment, which is
-    // why `less` was reporting "terminal is not fully functional" (TERM
-    // wasn't making it through to the child).
     let envPairs = environment.map { "\($0.key)=\($0.value)" }
     let cEnv: [UnsafeMutablePointer<CChar>?] = envPairs.map { strdup($0) } + [nil]
 
     let fileActionsPtr = UnsafeMutablePointer<posix_spawn_file_actions_t?>.allocate(capacity: 1)
     defer { fileActionsPtr.deallocate() }
     posix_spawn_file_actions_init(fileActionsPtr)
-    // Child's stdin (fd 0) becomes the read end of our pipe.
     posix_spawn_file_actions_adddup2(fileActionsPtr, readFD, 0)
-    // The child doesn't need either raw pipe fd once dup2'd onto stdin.
     posix_spawn_file_actions_addclose(fileActionsPtr, readFD)
     posix_spawn_file_actions_addclose(fileActionsPtr, writeFD)
 
@@ -206,7 +181,6 @@ func outputStatus(_ output: String, noPager: Bool) {
     for ptr in cArgv where ptr != nil { free(ptr) }
     for ptr in cEnv where ptr != nil { free(ptr) }
 
-    // Parent no longer needs the read end.
     close(readFD)
 
     guard spawnResult == 0 else {
@@ -215,8 +189,7 @@ func outputStatus(_ output: String, noPager: Bool) {
         return
     }
 
-    // Write the status text to the pager's stdin, then close so it sees EOF.
-    var bytes = Array(output.utf8)
+    let bytes = Array(output.utf8)
     var offset = 0
     bytes.withUnsafeBufferPointer { buffer in
         while offset < buffer.count {
@@ -279,6 +252,6 @@ do {
     }
     exit(0)
 } catch {
-    if !quietOnError { fputs("systemctl: \(error.localizedDescription)\n", stderr) }
+    if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
     exit(1)
 }
