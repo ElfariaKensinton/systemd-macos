@@ -124,8 +124,7 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
 func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
     for status in statuses {
-        let description = status.description ?? ""
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(description)")
+        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(status.description ?? \"\")")
     }
 }
 
@@ -133,50 +132,40 @@ func outputStatus(_ output: String, noPager: Bool) {
     guard !output.isEmpty else { return }
 
     let environment = ProcessInfo.processInfo.environment
-    let configuredPager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"]
+    let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-    // systemd-style: explicit pager settings win. With no setting, use the
-    // native macOS terminal pager rather than hard-coding less.
-    if noPager || isatty(STDOUT_FILENO) != 1 || configuredPager == "cat" {
+    if noPager || !pagerSpec.isEmpty && pagerSpec == "cat" || !isatty(STDOUT_FILENO) {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let pagerSpec = configuredPager?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let pagerCommand = (pagerSpec?.isEmpty == false ? pagerSpec! : "/usr/bin/more")
-        .split(whereSeparator: { $0.isWhitespace })
-        .map(String.init)
-
-    guard let pagerExecutable = pagerCommand.first else {
+    let command = pagerSpec.isEmpty ? ["/usr/bin/more"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    guard let executable = command.first else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let tempURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("systemctl-status-\(ProcessInfo.processInfo.processIdentifier).txt")
+    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("systemctl-status-\(ProcessInfo.processInfo.processIdentifier).txt")
 
     do {
         try output.write(to: tempURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
         let process = Process()
-        if pagerExecutable.hasPrefix("/") {
-            process.executableURL = URL(fileURLWithPath: pagerExecutable)
-            process.arguments = Array(pagerCommand.dropFirst()) + [tempURL.path]
+        if executable.hasPrefix("/") {
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = Array(command.dropFirst()) + [tempURL.path]
         } else {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = pagerCommand + [tempURL.path]
+            process.arguments = command + [tempURL.path]
         }
-        process.standardInput = FileHandle.standardInput
+
+        let tty = FileHandle.standardInput
+        process.standardInput = tty
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
-
         try process.run()
         process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
-        }
     } catch {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
     }
@@ -209,23 +198,13 @@ do {
 
     switch options.action {
     case .status:
-        if !options.quiet {
-            if response.output.isEmpty {
-                printStatuses(response.statuses, noLegend: true)
-            } else {
-                outputStatus(response.output, noPager: options.noPager)
-            }
-        }
+        if !options.quiet { outputStatus(response.output, noPager: options.noPager) }
     case .listUnits, .listUnitFiles:
         if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
     case .isActive:
-        if !options.quiet, let first = response.statuses.first {
-            print(first.activeState == "active" ? "active" : "inactive")
-        }
+        if !options.quiet, let first = response.statuses.first { print(first.activeState == "active" ? "active" : "inactive") }
     case .isEnabled:
-        if !options.quiet, let first = response.statuses.first {
-            print(first.enabled ? "enabled" : "disabled")
-        }
+        if !options.quiet, let first = response.statuses.first { print(first.enabled ? "enabled" : "disabled") }
     case .cat, .show:
         if !options.quiet, !response.output.isEmpty { print(response.output) }
     case .daemonReload:
