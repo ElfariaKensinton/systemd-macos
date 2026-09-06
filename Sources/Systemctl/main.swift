@@ -166,8 +166,8 @@ func outputStatus(_ output: String, noPager: Bool) {
 
     var pid: pid_t = 0
     let cArgv: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
-    let envPairs = environment.map { "\($0.key)=\($0.value)" }
-    let cEnv: [UnsafeMutablePointer<CChar>?] = envPairs.map { strdup($0) } + [nil]
+    let environmentPairs = environment.map { "\($0.key)=\($0.value)" }
+    let cEnv: [UnsafeMutablePointer<CChar>?] = environmentPairs.map { strdup($0) } + [nil]
 
     let fileActionsPtr = UnsafeMutablePointer<posix_spawn_file_actions_t?>.allocate(capacity: 1)
     defer { fileActionsPtr.deallocate() }
@@ -238,10 +238,10 @@ do {
         if !options.quiet, let first = response.statuses.first { print(first.activeState == "active" ? "active" : "inactive") }
     case .isEnabled:
         if !options.quiet, let first = response.statuses.first { print(first.enabled ? "enabled" : "disabled") }
-    case .cat, .show:
+    case .cat, .show, .enable, .disable:
         if !options.quiet, !response.output.isEmpty { print(response.output) }
     case .daemonReload:
-        if !options.quiet { print("Reloaded unit files.") }
+        break
     default:
         break
     }
