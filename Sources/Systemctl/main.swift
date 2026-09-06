@@ -10,6 +10,7 @@ struct CLIOptions {
     var quiet = false
     var noLegend = false
     var noPager = false
+    var plain = false
 }
 
 func usage() -> Never {
@@ -40,7 +41,7 @@ func usage() -> Never {
     print("  --no-pager              Disable the pager")
     print("  --system                Accepted; system scope is the default")
     print("  --user                  Use user unit directory where supported")
-    print("  --plain                 Accepted for systemctl compatibility")
+    print("  --plain                 Disable ANSI colors and underlines")
     print("  --version               Show version")
     print("  --help, -h              Show this help")
     exit(1)
@@ -51,6 +52,7 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
     var quiet = false
     var noLegend = false
     var noPager = false
+    var plain = false
     var now = false
     var index = 0
 
@@ -60,8 +62,11 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
         case "--quiet", "-q":
             quiet = true
             tokens.remove(at: index)
-        case "--no-legend", "--system", "--user", "--plain":
+        case "--no-legend", "--system", "--user":
             if token == "--no-legend" { noLegend = true }
+            tokens.remove(at: index)
+        case "--plain":
+            plain = true
             tokens.remove(at: index)
         case "--no-pager":
             noPager = true
@@ -82,7 +87,7 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
     guard let actionString = tokens.first, let action = SystemctlAction(rawValue: actionString) else { usage() }
     tokens.removeFirst()
     if action != .daemonReload && action != .listUnits && action != .listUnitFiles && tokens.isEmpty { usage() }
-    return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend, noPager: noPager), now)
+    return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend, noPager: noPager, plain: plain), now)
 }
 
 func connect() throws -> Int32 {
@@ -106,16 +111,11 @@ func connect() throws -> Int32 {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        if result == 0 {
-            return fd
-        }
+        if result == 0 { return fd }
 
         lastError = "cannot connect to systemd at \(SystemdPaths.socket.path); \(String(cString: strerror(errno)))"
         close(fd)
-
-        if attempt < 19 {
-            usleep(50_000)
-        }
+        if attempt < 19 { usleep(50_000) }
     }
 
     throw ManagerError.ipc("\(lastError)")
@@ -140,26 +140,27 @@ func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     }
 }
 
-func outputStatus(_ output: String, noPager: Bool) {
+func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus]) {
     guard !output.isEmpty else { return }
+    let formatted = colorizedStatusOutput(output, statuses: statuses, plain: plain)
 
     let environment = ProcessInfo.processInfo.environment
     let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
     if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
-        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+        print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
 
     let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRSX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = command.first else {
-        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+        print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
 
     var pipeFDs: [Int32] = [0, 0]
     guard pipeFDs.withUnsafeMutableBufferPointer({ pipe($0.baseAddress) }) == 0 else {
-        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+        print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
     let readFD = pipeFDs[0]
@@ -193,14 +194,13 @@ func outputStatus(_ output: String, noPager: Bool) {
     for ptr in cEnv where ptr != nil { free(ptr) }
 
     close(readFD)
-
     guard spawnResult == 0 else {
         close(writeFD)
-        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+        print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let bytes = Array(output.utf8)
+    let bytes = Array(formatted.utf8)
     var offset = 0
     bytes.withUnsafeBufferPointer { buffer in
         while offset < buffer.count {
@@ -257,7 +257,7 @@ do {
 
     switch options.action {
     case .status:
-        if !options.quiet { outputStatus(response.output, noPager: options.noPager) }
+        if !options.quiet { outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses) }
     case .listUnits, .listUnitFiles:
         if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
     case .isActive:
