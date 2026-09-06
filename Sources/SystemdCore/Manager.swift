@@ -334,7 +334,7 @@ public final class ServiceManager: @unchecked Sendable {
     }
 
     private func startLogReader(_ handle: FileHandle, url: URL) {
-        DispatchQueue.global(qos: .utility).async { [fileManager] in
+        DispatchQueue.global(qos: .utility).async {
             while true {
                 let data = handle.readData(ofLength: 8192)
                 if data.isEmpty { break }
@@ -350,7 +350,6 @@ public final class ServiceManager: @unchecked Sendable {
             }
             try? handle.close()
         }
-        _ = fileManager
     }
 
     private func commandInvocation(command: String, unit: UnitFile) throws -> (executable: String, arguments: [String]) {
