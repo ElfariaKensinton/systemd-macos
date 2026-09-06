@@ -144,8 +144,9 @@ final class UnixServer {
             let stderr = tail(url: stderrURL, lines: 10)
             if !stdout.isEmpty || !stderr.isEmpty {
                 lines.append("")
+                lines.append("Sep 06 00:00:00 systemd-macos \(status.name)[\(status.mainPID)]: Journal output")
                 for line in stdout + stderr {
-                    lines.append("systemd-macos \(status.name)[\(status.mainPID)]: \(line)")
+                    lines.append("Sep 06 00:00:00 systemd-macos \(status.name)[\(status.mainPID)]: \(line)")
                 }
             }
             blocks.append(lines.joined(separator: "\n"))
@@ -155,7 +156,7 @@ final class UnixServer {
 
     private func tail(url: URL, lines: Int) -> [String] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return Array(text.split(whereSeparator: \.isNewline, omittingEmptySubsequences: true).suffix(lines)).map(String.init)
+        return Array(text.split(whereSeparator: { $0.isNewline }, omittingEmptySubsequences: true).suffix(lines)).map(String.init)
     }
 }
 
