@@ -199,7 +199,9 @@ public final class ServiceManager: @unchecked Sendable {
     }
 
     private func launch(_ unit: UnitFile) throws {
-        for command in unit.service.execStartPre { _ = try run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory) }
+        for command in unit.service.execStartPre {
+            _ = try run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory)
+        }
         guard let command = unit.service.execStart.first else {
             lock.lock(); runtime[unit.name] = Runtime(state: "exited", result: "success", mainPID: 0); lock.unlock(); return
         }
@@ -235,13 +237,15 @@ public final class ServiceManager: @unchecked Sendable {
         runtime[unit.name]?.state = "active"
         lock.unlock()
 
-        // ExecStart is asynchronous, but a command that exits immediately with
-        // a non-zero status is a failed start, not a successful job. Give the
-        // shell a short opportunity to report immediate exec/launch failures.
-        let deadline = Date().addingTimeInterval(0.1)
-        while process.isRunning && Date() < deadline {
+        // A systemd-style job must not report success when the control shell
+        // has already terminated unsuccessfully. Poll briefly before returning
+        // from start/restart so immediate ExecStart failures become job errors.
+        // Long-running services continue asynchronously after this window.
+        let jobCheckDeadline = Date().addingTimeInterval(1.0)
+        while process.isRunning && Date() < jobCheckDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
+
         if !process.isRunning {
             process.waitUntilExit()
             let status = process.terminationStatus
@@ -258,7 +262,9 @@ public final class ServiceManager: @unchecked Sendable {
             self.handleExit(unit: unit, status: process.terminationStatus)
         }
 
-        for command in unit.service.execStartPost { _ = try? run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory) }
+        for command in unit.service.execStartPost {
+            _ = try? run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory)
+        }
     }
 
     private func handleExit(unit: UnitFile, status: Int32, allowRestart: Bool = true) {
