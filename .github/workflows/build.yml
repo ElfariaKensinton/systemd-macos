@@ -61,6 +61,7 @@ jobs:
           install -m 755 .build/release/systemd stage/bin/systemd
           install -m 755 .build/release/systemctl stage/bin/systemctl
           install -m 755 .build/release/journalctl stage/bin/journalctl
+          install -m 755 .build/release/systemd-exec-helper stage/bin/systemd-exec-helper
           install -m 644 scripts/systemd-macos.bash stage/scripts/systemd-macos.bash
           install -m 644 scripts/_systemctl stage/scripts/_systemctl
           install -m 644 scripts/_journalctl stage/scripts/_journalctl
