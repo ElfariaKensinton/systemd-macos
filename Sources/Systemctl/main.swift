@@ -86,28 +86,39 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
 }
 
 func connect() throws -> Int32 {
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard fd >= 0 else { throw ManagerError.ipc("socket() failed") }
-    var address = sockaddr_un()
-    address.sun_family = sa_family_t(AF_UNIX)
-    let pathBytes = Array(SystemdPaths.socket.path.utf8) + [0]
-    guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+    var lastError = "is the daemon running?"
+
+    for attempt in 0..<20 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw ManagerError.ipc("socket() failed") }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(SystemdPaths.socket.path.utf8) + [0]
+        guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            close(fd)
+            throw ManagerError.ipc("socket path is too long")
+        }
+        withUnsafeMutableBytes(of: &address.sun_path) { destination in
+            destination.copyBytes(from: pathBytes)
+        }
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if result == 0 {
+            return fd
+        }
+
+        lastError = "cannot connect to systemd at \(SystemdPaths.socket.path); \(String(cString: strerror(errno)))"
         close(fd)
-        throw ManagerError.ipc("socket path is too long")
-    }
-    withUnsafeMutableBytes(of: &address.sun_path) { destination in
-        destination.copyBytes(from: pathBytes)
-    }
-    let result = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+
+        if attempt < 19 {
+            usleep(50_000)
         }
     }
-    guard result == 0 else {
-        close(fd)
-        throw ManagerError.ipc("cannot connect to systemd at \(SystemdPaths.socket.path); is the daemon running?")
-    }
-    return fd
+
+    throw ManagerError.ipc("\(lastError)")
 }
 
 func request(_ request: IPCRequest) throws -> IPCResponse {
