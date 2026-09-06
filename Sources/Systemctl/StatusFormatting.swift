@@ -21,21 +21,23 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
     for (index, block) in blocks.enumerated() {
         guard !block.isEmpty else { continue }
         let status = index < statuses.count ? statuses[index] : nil
+
         let stateColor: String
-        switch status?.subState {
-        case "active": stateColor = green
-        case "activating": stateColor = yellow
-        case "exited": stateColor = yellow
-        case "failed": stateColor = red
-        default: stateColor = dim
+        if status?.result != "success" {
+            stateColor = red
+        } else {
+            switch status?.subState {
+            case "active": stateColor = green
+            case "activating": stateColor = yellow
+            case "exited": stateColor = yellow
+            default: stateColor = dim
+            }
         }
 
         var lines = block.components(separatedBy: "\n")
-        if let first = lines.first {
-            if first.hasPrefix("●") || first.hasPrefix("○") {
-                let bullet = String(first.prefix(1))
-                lines[0] = stateColor + bullet + reset + String(first.dropFirst())
-            }
+        if let first = lines.first, first.hasPrefix("●") || first.hasPrefix("○") {
+            let bullet = String(first.prefix(1))
+            lines[0] = stateColor + bullet + reset + String(first.dropFirst())
         }
 
         for i in lines.indices {
@@ -49,28 +51,27 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
                     let after = String(line[semicolon...])
                     line = before + underline + path + reset + after
                 }
-                if line.contains("; enabled") {
-                    line = line.replacingOccurrences(of: "; enabled", with: "; \(green)enabled\(reset)")
-                } else if line.contains("; disabled") {
-                    line = line.replacingOccurrences(of: "; disabled", with: "; \(red)disabled\(reset)")
-                }
+                line = line.replacingOccurrences(of: "; enabled", with: "; \(green)enabled\(reset)")
+                line = line.replacingOccurrences(of: "; disabled", with: "; \(red)disabled\(reset)")
             } else if line.hasPrefix("     Active:") {
                 if line.contains("active (running)") {
                     line = line.replacingOccurrences(of: "active (running)", with: "\(green)active (running)\(reset)")
                 } else if line.contains("activating (start)") {
                     line = line.replacingOccurrences(of: "activating (start)", with: "\(yellow)activating (start)\(reset)")
-                } else if line.contains("inactive (dead)") || line.contains("inactive (exited)") {
-                    line = line.replacingOccurrences(of: "inactive (dead)", with: "\(dim)inactive (dead)\(reset)")
+                } else if line.contains("inactive (exited)") {
                     line = line.replacingOccurrences(of: "inactive (exited)", with: "\(yellow)inactive (exited)\(reset)")
+                } else if line.contains("inactive (dead)") {
+                    line = line.replacingOccurrences(of: "inactive (dead)", with: "\(dim)inactive (dead)\(reset)")
                 }
             } else if line.hasPrefix("TriggeredBy:") {
                 line = line.replacingOccurrences(of: "●", with: "\(green)●\(reset)")
             } else if line.hasPrefix("     Docs: ") {
                 let prefix = "     Docs: "
-                let value = String(line.dropFirst(prefix.count))
-                line = prefix + underline + value + reset
+                line = prefix + underline + String(line.dropFirst(prefix.count)) + reset
             } else if line.hasPrefix("    Process:") && line.contains("SUCCESS") {
                 line = green + line + reset
+            } else if line.hasPrefix("    Process:") && line.contains("FAILED") {
+                line = red + line + reset
             } else if line.hasPrefix("   Main PID:") {
                 line = bold + line + reset
             }
