@@ -46,30 +46,18 @@ opts=(
   '--no-legend[Omit headers]'
   '--no-pager[Disable the pager]'
   '--system[Use system scope]'
-  '--user[Use user unit directory where supported]'
+  '--user[Use user scope]' 
   '--plain[Accepted for systemctl compatibility]'
   '(-h --help)'{-h,--help}'[Show help]'
   '--version[Show version]'
 )
 
-local state
-_arguments -C $opts \
+_arguments -s -C $opts \
   '1:command:->command' \
-  '*:unit:->unit'
+  '*::unit:_systemd_macos_units'
 
 case $state in
   command)
     _describe 'command' commands
-    return 0
-    ;;
-  unit)
-    case "${words[2]}" in
-      start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-        _systemd_macos_units
-        return 0
-        ;;
-    esac
     ;;
 esac
-
-return 0
