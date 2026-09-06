@@ -16,23 +16,14 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
     exit(code)
 }
 
-func lookupUser(_ name: String) -> passwd {
-    var entry = passwd()
-    guard let pointer = getpwnam_r(name, &entry, nil, 0, nil), pointer != nil else {
-        fail("user \(name) not found")
-    }
-    return entry
+func lookupUser(_ name: String) -> (uid: uid_t, gid: gid_t) {
+    guard let pointer = getpwnam(name) else { fail("user \(name) not found") }
+    return (pointer.pointee.pw_uid, pointer.pointee.pw_gid)
 }
 
 func lookupGroup(_ name: String) -> gid_t {
-    var entry = group()
-    let bufferSize = 16_384
-    let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
-    defer { buffer.deallocate() }
-    var result: UnsafeMutablePointer<group>?
-    let rc = getgrnam_r(name, &entry, buffer, bufferSize, &result)
-    guard rc == 0, result != nil else { fail("group \(name) not found") }
-    return entry.gr_gid
+    guard let pointer = getgrnam(name) else { fail("group \(name) not found") }
+    return pointer.pointee.gr_gid
 }
 
 func parseOctalMode(_ value: String) -> mode_t {
@@ -60,22 +51,28 @@ func parseArguments() -> Arguments {
     while index < args.count {
         switch args[index] {
         case "--user":
-            index += 1; guard index < args.count else { fail("--user requires a value") }
+            index += 1
+            guard index < args.count else { fail("--user requires a value") }
             user = args[index]
         case "--group":
-            index += 1; guard index < args.count else { fail("--group requires a value") }
+            index += 1
+            guard index < args.count else { fail("--group requires a value") }
             group = args[index]
         case "--supplementary-groups":
-            index += 1; guard index < args.count else { fail("--supplementary-groups requires a value") }
+            index += 1
+            guard index < args.count else { fail("--supplementary-groups requires a value") }
             supplementary = args[index].split(separator: ",", omittingEmptySubsequences: true).map(String.init)
         case "--umask":
-            index += 1; guard index < args.count else { fail("--umask requires a value") }
+            index += 1
+            guard index < args.count else { fail("--umask requires a value") }
             umask = parseOctalMode(args[index])
         case "--nofile":
-            index += 1; guard index < args.count else { fail("--nofile requires a value") }
+            index += 1
+            guard index < args.count else { fail("--nofile requires a value") }
             nofile = parseLimit(args[index])
         case "--command":
-            index += 1; guard index < args.count else { fail("--command requires a value") }
+            index += 1
+            guard index < args.count else { fail("--command requires a value") }
             command = args[index]
         default:
             fail("unknown argument \(args[index])")
@@ -94,14 +91,14 @@ guard getuid() == 0 else {
     fail("privilege-changing execution requires root", code: 77)
 }
 
-var targetUID: uid_t = 0
-var targetGID: gid_t = 0
+var targetUID: uid_t = getuid()
+var targetGID: gid_t = getgid()
 var targetUser: String?
 
 if let user = arguments.user {
-    let entry = lookupUser(user)
-    targetUID = entry.pw_uid
-    targetGID = entry.pw_gid
+    let account = lookupUser(user)
+    targetUID = account.uid
+    targetGID = account.gid
     targetUser = user
 }
 
@@ -114,10 +111,6 @@ if let nofile = arguments.nofile {
     guard setrlimit(RLIMIT_NOFILE, &limit) == 0 else {
         fail("setrlimit(RLIMIT_NOFILE) failed: \(String(cString: strerror(errno)))")
     }
-}
-
-if let umask = arguments.umask {
-    _ = Foundation.umask(umask)
 }
 
 if !arguments.supplementaryGroups.isEmpty {
@@ -141,6 +134,10 @@ if arguments.user != nil || arguments.group != nil {
     guard setuid(targetUID) == 0 else {
         fail("setuid failed: \(String(cString: strerror(errno)))")
     }
+}
+
+if let umask = arguments.umask {
+    _ = Darwin.umask(umask)
 }
 
 execl("/bin/sh", "sh", "-c", arguments.command, nil)
