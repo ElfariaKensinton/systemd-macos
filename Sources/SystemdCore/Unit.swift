@@ -64,7 +64,7 @@ public struct ServiceConfig: Sendable {
     public var execStartPost: [String] = []
     public var execStop: [String] = []
     public var restart: RestartPolicy = .no
-    public var restartSec: TimeInterval = 100ms
+    public var restartSec: TimeInterval = 0.1
     public var timeoutStartSec: TimeInterval = 90
     public var timeoutStopSec: TimeInterval = 90
     public var user: String?
@@ -79,8 +79,6 @@ public struct ServiceConfig: Sendable {
 
     public init() {}
 }
-
-private let `100ms`: TimeInterval = 0.1
 
 public struct UnitStatus: Codable, Sendable {
     public var name: String
