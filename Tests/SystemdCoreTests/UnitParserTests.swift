@@ -14,6 +14,8 @@ final class UnitParserTests: XCTestCase {
         ExecStart=/usr/bin/example --listen 127.0.0.1:8080
         Restart=on-failure
         RestartSec=250ms
+        User=nobody
+        LimitNOFILE=1048576
         Environment=FOO=bar
         RemainAfterExit=no
         
@@ -30,6 +32,8 @@ final class UnitParserTests: XCTestCase {
         XCTAssertEqual(unit.service.execStart, ["/usr/bin/example --listen 127.0.0.1:8080"])
         XCTAssertEqual(unit.service.restart, .onFailure)
         XCTAssertEqual(unit.service.restartSec, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(unit.service.user, "nobody")
+        XCTAssertEqual(unit.service.limitNOFILE, 1_048_576)
         XCTAssertEqual(unit.service.environment["FOO"], "bar")
         XCTAssertEqual(unit.wantedBy, ["multi-user.target"])
     }
@@ -39,6 +43,16 @@ final class UnitParserTests: XCTestCase {
         XCTAssertEqual(try parser.parseDuration("500ms"), 0.5, accuracy: 0.0001)
         XCTAssertEqual(try parser.parseDuration("2min"), 120, accuracy: 0.0001)
         XCTAssertEqual(try parser.parseDuration("1h"), 3600, accuracy: 0.0001)
+    }
+
+    func testRejectsInvalidLimitNOFILE() {
+        let text = """
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/example
+        LimitNOFILE=not-a-number
+        """
+        XCTAssertThrowsError(try UnitParser().parse(text: text, name: "example.service"))
     }
 
     func testRejectsNonServiceUnit() {
