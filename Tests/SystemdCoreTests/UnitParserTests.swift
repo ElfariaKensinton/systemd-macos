@@ -15,7 +15,13 @@ final class UnitParserTests: XCTestCase {
         Restart=on-failure
         RestartSec=250ms
         User=nobody
+        Group=staff
+        SupplementaryGroups=wheel network
+        UMask=027
         LimitNOFILE=1048576
+        CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+        AmbientCapabilities=CAP_NET_ADMIN
+        NoNewPrivileges=no
         Environment=FOO=bar
         RemainAfterExit=no
         
@@ -33,7 +39,13 @@ final class UnitParserTests: XCTestCase {
         XCTAssertEqual(unit.service.restart, .onFailure)
         XCTAssertEqual(unit.service.restartSec, 0.25, accuracy: 0.0001)
         XCTAssertEqual(unit.service.user, "nobody")
+        XCTAssertEqual(unit.service.group, "staff")
+        XCTAssertEqual(unit.service.supplementaryGroups, ["wheel", "network"])
+        XCTAssertEqual(unit.service.umask, 0o27)
         XCTAssertEqual(unit.service.limitNOFILE, 1_048_576)
+        XCTAssertEqual(unit.service.capabilityBoundingSet, ["CAP_NET_ADMIN", "CAP_NET_RAW"])
+        XCTAssertEqual(unit.service.ambientCapabilities, ["CAP_NET_ADMIN"])
+        XCTAssertFalse(unit.service.noNewPrivileges)
         XCTAssertEqual(unit.service.environment["FOO"], "bar")
         XCTAssertEqual(unit.wantedBy, ["multi-user.target"])
     }
@@ -51,6 +63,16 @@ final class UnitParserTests: XCTestCase {
         Type=simple
         ExecStart=/usr/bin/example
         LimitNOFILE=not-a-number
+        """
+        XCTAssertThrowsError(try UnitParser().parse(text: text, name: "example.service"))
+    }
+
+    func testRejectsInvalidUMask() {
+        let text = """
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/example
+        UMask=999
         """
         XCTAssertThrowsError(try UnitParser().parse(text: text, name: "example.service"))
     }
