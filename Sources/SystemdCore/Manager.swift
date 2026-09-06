@@ -218,13 +218,30 @@ public final class ServiceManager: @unchecked Sendable {
 
         let outURL = try logURL(for: unit, stream: "stdout")
         let errURL = try logURL(for: unit, stream: "stderr")
-        process.standardOutput = unit.service.standardOutput == "null" ? FileHandle.nullDevice : try FileHandle(forWritingTo: outURL)
-        process.standardError = unit.service.standardError == "null" ? FileHandle.nullDevice : try FileHandle(forWritingTo: errURL)
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let outputMode = unit.service.standardOutput.lowercased()
+        let errorMode = unit.service.standardError.lowercased()
+        if outputMode == "null" {
+            process.standardOutput = FileHandle.nullDevice
+        } else {
+            process.standardOutput = stdoutPipe
+            try truncateLog(outURL)
+        }
+        if errorMode == "null" {
+            process.standardError = FileHandle.nullDevice
+        } else {
+            process.standardError = stderrPipe
+            try truncateLog(errURL)
+        }
 
         lock.lock()
         runtime[unit.name] = Runtime(state: "activating", result: "success", mainPID: 0)
         runtime[unit.name]?.process = process
         lock.unlock()
+
+        if outputMode != "null" { startLogReader(stdoutPipe.fileHandleForReading, url: outURL) }
+        if errorMode != "null" { startLogReader(stderrPipe.fileHandleForReading, url: errURL) }
 
         do {
             try process.run()
@@ -297,8 +314,6 @@ public final class ServiceManager: @unchecked Sendable {
         process.environment = environment(for: unit)
         if let directory = unit.service.workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
 
-        // ExecStartPre/ExecStartPost/ExecStop are control processes. Their
-        // output must not leak into the service's stdout/stderr streams.
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -306,6 +321,36 @@ public final class ServiceManager: @unchecked Sendable {
         process.waitUntilExit()
         if process.terminationStatus != 0 { throw ManagerError.commandFailed(command, process.terminationStatus) }
         return process.terminationStatus
+    }
+
+    private func truncateLog(_ url: URL) throws {
+        if fileManager.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.truncate(atOffset: 0)
+            try handle.close()
+        } else {
+            fileManager.createFile(atPath: url.path, contents: Data())
+        }
+    }
+
+    private func startLogReader(_ handle: FileHandle, url: URL) {
+        DispatchQueue.global(qos: .utility).async { [fileManager] in
+            while true {
+                let data = handle.readData(ofLength: 8192)
+                if data.isEmpty { break }
+                guard let output = try? FileHandle(forWritingTo: url) else { break }
+                do {
+                    try output.seekToEnd()
+                    try output.write(contentsOf: data)
+                    try output.close()
+                } catch {
+                    try? output.close()
+                    break
+                }
+            }
+            try? handle.close()
+        }
+        _ = fileManager
     }
 
     private func commandInvocation(command: String, unit: UnitFile) throws -> (executable: String, arguments: [String]) {
