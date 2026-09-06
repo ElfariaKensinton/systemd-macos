@@ -21,43 +21,44 @@ _systemd_macos_units() {
   _describe 'unit' units
 }
 
-local -a systemctl_commands
-systemctl_commands=(
-  'start:Start units'
-  'stop:Stop units'
-  'restart:Restart units'
-  'reload:Reload units'
-  'status:Show runtime status'
-  'enable:Enable units'
-  'disable:Disable units'
-  'is-active:Check whether units are active'
-  'is-enabled:Check whether units are enabled'
-  'daemon-reload:Reload unit files'
-  'list-units:List loaded units'
-  'list-unit-files:List installed unit files'
-  'cat:Show unit file contents'
-  'show:Show machine-readable properties'
-)
+_systemctl() {
+  local -a systemctl_commands opts
+  systemctl_commands=(
+    'start:Start units'
+    'stop:Stop units'
+    'restart:Restart units'
+    'reload:Reload units'
+    'status:Show runtime status'
+    'enable:Enable units'
+    'disable:Disable units'
+    'is-active:Check whether units are active'
+    'is-enabled:Check whether units are enabled'
+    'daemon-reload:Reload unit files'
+    'list-units:List loaded units'
+    'list-unit-files:List installed unit files'
+    'cat:Show unit file contents'
+    'show:Show machine-readable properties'
+  )
 
-local -a opts
-opts=(
-  '--now[Enable/disable and immediately start/stop]'
-  '(-q --quiet)'{-q,--quiet}'[Suppress successful output]'
-  '--no-legend[Omit headers]'
-  '--no-pager[Disable the pager]'
-  '--system[Use system scope]'
-  '--user[Use user scope]'
-  '--plain[Accepted for systemctl compatibility]'
-  '(-h --help)'{-h,--help}'[Show help]'
-  '--version[Show version]'
-)
+  opts=(
+    '--now[Enable/disable and immediately start/stop]'
+    '(-q --quiet)'{-q,--quiet}'[Suppress successful output]'
+    '--no-legend[Omit headers]'
+    '--no-pager[Disable the pager]'
+    '--system[Use system scope]'
+    '--user[Use user scope]'
+    '--plain[Accepted for systemctl compatibility]'
+    '(-h --help)'{-h,--help}'[Show help]'
+    '--version[Show version]'
+  )
 
-_arguments -s -C $opts \
-  '1:command:->command' \
-  '*::unit:_systemd_macos_units'
+  _arguments -s -C $opts \
+    '1:command:->command' \
+    '*::unit:_systemd_macos_units'
 
-case $state in
-  command)
-    _describe 'command' systemctl_commands
-    ;;
-esac
+  case $state in
+    command)
+      _describe 'command' systemctl_commands
+      ;;
+  esac
+}
