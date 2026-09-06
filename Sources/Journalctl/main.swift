@@ -14,7 +14,9 @@ func usage() -> Never {
     print("  -u, --unit UNIT    Show logs for a unit")
     print("  -f, --follow       Follow new log output")
     print("  -n, --lines N      Show last N lines")
-    print("      --no-pager     Accepted for compatibility")
+    print("  -x, --catalog      Show explanatory messages (accepted)")
+    print("  -e, --pager-end    Jump to end of journal (accepted)")
+    print("      --no-pager     Disable the pager")
     print("  -h, --help         Show this help")
     exit(0)
 }
@@ -23,26 +25,82 @@ func parse(_ args: [String]) -> Options {
     var o = Options()
     var i = 1
     while i < args.count {
-        switch args[i] {
-        case "-f", "--follow": o.follow = true; i += 1
-        case "--no-pager": i += 1
-        case "-u", "--unit":
+        let arg = args[i]
+        if arg == "--" {
+            i += 1
+            while i < args.count {
+                let name = args[i]
+                o.units.append(name.hasSuffix(".service") ? name : name + ".service")
+                i += 1
+            }
+            continue
+        }
+
+        if arg == "-f" || arg == "--follow" {
+            o.follow = true
+            i += 1
+            continue
+        }
+        if arg == "--no-pager" {
+            i += 1
+            continue
+        }
+        if arg == "-h" || arg == "--help" {
+            usage()
+        }
+        if arg == "--version" {
+            print("systemd-macos 0.1.0")
+            exit(0)
+        }
+        if arg == "--catalog" || arg == "--pager-end" {
+            i += 1
+            continue
+        }
+        if arg == "--unit" || arg == "-u" {
             guard i + 1 < args.count else { fputs("journalctl: --unit requires a unit name\n", stderr); exit(1) }
             let name = args[i + 1]
             o.units.append(name.hasSuffix(".service") ? name : name + ".service")
             i += 2
-        case "-n", "--lines":
+            continue
+        }
+        if arg == "--lines" || arg == "-n" {
             guard i + 1 < args.count, let n = Int(args[i + 1]), n >= 0 else { fputs("journalctl: --lines requires a non-negative integer\n", stderr); exit(1) }
             o.lines = n
             i += 2
-        case "-h", "--help": usage()
-        case "--version": print("systemd-macos 0.1.0"); exit(0)
-        default:
-            if args[i].hasPrefix("-") { fputs("journalctl: unknown option \(args[i])\n", stderr); exit(1) }
-            let name = args[i]
-            o.units.append(name.hasSuffix(".service") ? name : name + ".service")
-            i += 1
+            continue
         }
+
+        if arg.hasPrefix("-") && !arg.hasPrefix("--") {
+            let flags = Array(arg.dropFirst())
+            var consumedUnit = false
+            var consumedLines = false
+            for flag in flags {
+                switch flag {
+                case "x", "e":
+                    break
+                case "f":
+                    o.follow = true
+                case "u":
+                    guard i + 1 < args.count else { fputs("journalctl: -u requires a unit name\n", stderr); exit(1) }
+                    let name = args[i + 1]
+                    o.units.append(name.hasSuffix(".service") ? name : name + ".service")
+                    consumedUnit = true
+                case "n":
+                    guard i + 1 < args.count, let n = Int(args[i + 1]), n >= 0 else { fputs("journalctl: -n requires a non-negative integer\n", stderr); exit(1) }
+                    o.lines = n
+                    consumedLines = true
+                default:
+                    fputs("journalctl: unknown option -\(flag)\n", stderr)
+                    exit(1)
+                }
+            }
+            if consumedUnit || consumedLines { i += 2 } else { i += 1 }
+            continue
+        }
+
+        let name = arg
+        o.units.append(name.hasSuffix(".service") ? name : name + ".service")
+        i += 1
     }
     return o
 }
