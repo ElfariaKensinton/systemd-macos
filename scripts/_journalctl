@@ -1,0 +1,28 @@
+#compdef journalctl
+
+_systemd_macos_units() {
+  local -a units files
+  files=(
+    /etc/systemd/system/*.service(N)
+    /usr/local/lib/systemd/system/*.service(N)
+  )
+  units=("${files:t}")
+  print -rl -- "${units[@]}"
+}
+
+_arguments -C \
+  '(-f --follow)'{-f,--follow}'[Follow new log output]' \
+  '(-u --unit)'{-u,--unit}'[Show logs for a unit]:unit:->unit' \
+  '(-n --lines)'{-n,--lines}'[Show last N lines]:lines:(0 10 20 50 100 200 500 1000)' \
+  '(-x --catalog)'{-x,--catalog}'[Show explanatory messages]' \
+  '(-e --pager-end)'{-e,--pager-end}'[Jump to end of journal]' \
+  '--no-pager[Disable the pager]' \
+  '--version[Show version]' \
+  '(-h --help)'{-h,--help}'[Show help]' \
+  '*:unit:->unit'
+
+case $state in
+  unit)
+    compadd -- $(_systemd_macos_units)
+    ;;
+esac
