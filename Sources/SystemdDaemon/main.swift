@@ -112,7 +112,9 @@ final class UnixServer {
         case .show:
             let values = try request.units.map { try manager.show($0) }
             let output = values.map { dictionary in
-                dictionary.keys.sorted().map { "\($0)=\(dictionary[$0] ?? \"\")" }.joined(separator: "\n")
+                dictionary.keys.sorted().map { key in
+                    "\(key)=\(dictionary[key] ?? "")"
+                }.joined(separator: "\n")
             }.joined(separator: "\n")
             return IPCResponse(exitCode: 0, output: output)
         }
