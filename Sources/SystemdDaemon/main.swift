@@ -34,6 +34,8 @@ final class UnixServer {
         chmod(SystemdPaths.socket.path, 0o660)
         guard listen(socketFD, 16) == 0 else { throw ManagerError.ipc("listen() failed") }
 
+        manager.startEnabledUnits()
+
         while true {
             let client = accept(socketFD, nil, nil)
             if client < 0 { continue }
@@ -71,23 +73,17 @@ final class UnixServer {
         case .listUnitFiles:
             return IPCResponse(exitCode: 0, statuses: manager.listUnitFiles())
         case .start:
-            try perform(request.units) { try manager.start($0) }
+            return try perform(request.units) { try manager.start($0) }
         case .stop:
-            try perform(request.units) { try manager.stop($0) }
+            return try perform(request.units) { try manager.stop($0) }
         case .restart:
-            try perform(request.units) { try manager.restart($0) }
+            return try perform(request.units) { try manager.restart($0) }
         case .reload:
-            // Service-specific reload is deliberately explicit in this first implementation.
-            try perform(request.units) { try manager.restart($0) }
+            return try perform(request.units) { try manager.restart($0) }
         case .enable:
-            try perform(request.units) { try manager.enable($0) }
+            return try perform(request.units) { try manager.enable($0) }
         case .disable:
-            try perform(request.units) { try manager.disable($0) }
-        case .status, .isActive, .isEnabled, .cat, .show:
-            break
-        }
-
-        switch request.action {
+            return try perform(request.units) { try manager.disable($0) }
         case .status:
             let statuses = try request.units.map(manager.status)
             return IPCResponse(exitCode: 0, output: render(statuses), statuses: statuses)
@@ -97,8 +93,8 @@ final class UnixServer {
             return IPCResponse(exitCode: active ? 0 : 3, statuses: statuses)
         case .isEnabled:
             let statuses = try request.units.map(manager.status)
-            let active = statuses.allSatisfy { $0.enabled }
-            return IPCResponse(exitCode: active ? 0 : 1, statuses: statuses)
+            let enabled = statuses.allSatisfy { $0.enabled }
+            return IPCResponse(exitCode: enabled ? 0 : 1, statuses: statuses)
         case .cat:
             return IPCResponse(exitCode: 0, output: try request.units.map(manager.cat).joined(separator: "\n"))
         case .show:
@@ -107,8 +103,6 @@ final class UnixServer {
                 dictionary.keys.sorted().map { "\($0)=\(dictionary[$0] ?? "")" }.joined(separator: "\n")
             }.joined(separator: "\n")
             return IPCResponse(exitCode: 0, output: output)
-        default:
-            return IPCResponse(exitCode: 0)
         }
     }
 
