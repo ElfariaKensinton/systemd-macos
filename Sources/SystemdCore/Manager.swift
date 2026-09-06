@@ -210,11 +210,7 @@ public final class ServiceManager: @unchecked Sendable {
         }
 
         let process = Process()
-        let invocation = commandInvocation(command: command, user: unit.service.user,
-                                           group: unit.service.group,
-                                           supplementaryGroups: unit.service.supplementaryGroups,
-                                           umask: unit.service.umask,
-                                           limitNOFILE: unit.service.limitNOFILE)
+        let invocation = try commandInvocation(command: command, unit: unit)
         process.launchPath = invocation.executable
         process.arguments = invocation.arguments
         process.environment = environment(for: unit)
@@ -295,11 +291,7 @@ public final class ServiceManager: @unchecked Sendable {
 
     private func run(_ command: String, unit: UnitFile) throws -> Int32 {
         let process = Process()
-        let invocation = commandInvocation(command: command, user: unit.service.user,
-                                           group: unit.service.group,
-                                           supplementaryGroups: unit.service.supplementaryGroups,
-                                           umask: unit.service.umask,
-                                           limitNOFILE: unit.service.limitNOFILE)
+        let invocation = try commandInvocation(command: command, unit: unit)
         process.launchPath = invocation.executable
         process.arguments = invocation.arguments
         process.environment = environment(for: unit)
@@ -310,44 +302,45 @@ public final class ServiceManager: @unchecked Sendable {
         return process.terminationStatus
     }
 
-    private func commandInvocation(command: String, user: String?, group: String?,
-                                   supplementaryGroups: [String], umask: UInt16?,
-                                   limitNOFILE: UInt64?) -> (executable: String, arguments: [String]) {
+    private func commandInvocation(command: String, unit: UnitFile) throws -> (executable: String, arguments: [String]) {
         var setup: [String] = []
-        if let umask { setup.append("umask \(String(umask, radix: 8))") }
-        if let limitNOFILE {
-            setup.append("ulimit -n \(limitNOFILE) || exit $?")
-        }
+        if let umask = unit.service.umask { setup.append("umask \(String(umask, radix: 8))") }
+        if let limitNOFILE = unit.service.limitNOFILE { setup.append("ulimit -n \(limitNOFILE) || exit $?") }
         let shellScript = (setup + ["exec /bin/sh -c \(shellQuote(command))"]).joined(separator: "\n")
 
-        let hasIdentityChange = (user?.isEmpty == false && user != "root")
-            || group?.isEmpty == false
-            || !supplementaryGroups.isEmpty
-
-        guard hasIdentityChange else {
+        let needsHelper = unit.service.user != nil || unit.service.group != nil ||
+            !unit.service.supplementaryGroups.isEmpty || unit.service.umask != nil ||
+            unit.service.limitNOFILE != nil
+        guard needsHelper else {
             return ("/bin/sh", ["-c", shellScript])
         }
 
-        var arguments = ["-n"]
-        if let user, !user.isEmpty { arguments += ["-u", user] }
-        if let group, !group.isEmpty { arguments += ["-g", group] }
-        if !supplementaryGroups.isEmpty { arguments += ["-G", supplementaryGroups.joined(separator: ",")] }
-        arguments += ["/bin/sh", "-c", shellScript]
-        return ("/usr/bin/sudo", arguments)
+        let helper = ProcessInfo.processInfo.environment["SYSTEMD_MACOS_EXEC_HELPER"]
+            ?? "/usr/local/bin/systemd-exec-helper"
+        var arguments: [String] = []
+        if let user = unit.service.user { arguments += ["--user", user] }
+        if let group = unit.service.group { arguments += ["--group", group] }
+        if !unit.service.supplementaryGroups.isEmpty {
+            arguments += ["--supplementary-groups", unit.service.supplementaryGroups.joined(separator: ",")]
+        }
+        if let umask = unit.service.umask { arguments += ["--umask", String(format: "%03o", umask)] }
+        if let limitNOFILE = unit.service.limitNOFILE { arguments += ["--nofile", String(limitNOFILE)] }
+        arguments += ["--command", shellScript]
+        return (helper, arguments)
     }
 
     private func validatePermissionConfiguration(_ unit: UnitFile) throws {
-        let currentUID = geteuid()
         let requestedUser = unit.service.user?.lowercased()
         let isRootTarget = requestedUser == nil || requestedUser == "root"
         let capabilities = unit.service.capabilityBoundingSet + unit.service.ambientCapabilities
-
-        if !capabilities.isEmpty && !isRootTarget {
-            throw ManagerError.permission("Linux capabilities \(capabilities.joined(separator: ", ")) cannot be granted to non-root services on macOS; use User=root for equivalent unrestricted privilege.")
+        if !capabilities.isEmpty {
+            throw ManagerError.invalidConfiguration("CapabilityBoundingSet= and AmbientCapabilities= are Linux-only and cannot be enforced on macOS")
         }
-
-        if unit.service.noNewPrivileges && (isRootTarget || currentUID != 0) {
-            throw ManagerError.permission("NoNewPrivileges= has no exact macOS equivalent and cannot be enforced by this manager.")
+        if unit.service.noNewPrivileges {
+            throw ManagerError.invalidConfiguration("NoNewPrivileges= has no exact macOS equivalent and cannot be enforced")
+        }
+        if isRootTarget && requestedUser == "root" && !capabilities.isEmpty {
+            throw ManagerError.permission("Linux capabilities are not available on macOS")
         }
     }
 
