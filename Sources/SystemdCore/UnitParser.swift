@@ -99,8 +99,13 @@ public struct UnitParser: Sendable {
         case "TimeoutStopSec": service.timeoutStopSec = try parseDuration(value)
         case "User": service.user = value
         case "Group": service.group = value
+        case "SupplementaryGroups": service.supplementaryGroups = splitWords(value)
         case "WorkingDirectory": service.workingDirectory = value
+        case "UMask": service.umask = try parseUMask(value)
         case "LimitNOFILE": service.limitNOFILE = try parseLimitNOFILE(value)
+        case "CapabilityBoundingSet": service.capabilityBoundingSet = splitWords(value).map { $0.uppercased() }
+        case "AmbientCapabilities": service.ambientCapabilities = splitWords(value).map { $0.uppercased() }
+        case "NoNewPrivileges": service.noNewPrivileges = try parseBool(value)
         case "Environment":
             let assignment = try parseAssignment(value)
             service.environment[assignment.0] = assignment.1
@@ -119,6 +124,17 @@ public struct UnitParser: Sendable {
             throw ManagerError.invalidConfiguration("unsupported LimitNOFILE=\(value)")
         }
         return limit
+    }
+
+    private func parseUMask(_ value: String) throws -> UInt16 {
+        let value = value.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty, value.allSatisfy({ $0.isNumber && $0 < "8" }) else {
+            throw ManagerError.invalidConfiguration("invalid UMask=\(value)")
+        }
+        guard let mask = UInt16(value, radix: 8), mask <= 0o777 else {
+            throw ManagerError.invalidConfiguration("invalid UMask=\(value)")
+        }
+        return mask
     }
 
     private func parseAssignment(_ value: String) throws -> (String, String) {
