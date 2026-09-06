@@ -9,6 +9,7 @@ struct CLIOptions {
     var units: [String]
     var quiet = false
     var noLegend = false
+    var noPager = false
 }
 
 func usage() -> Never {
@@ -36,7 +37,7 @@ func usage() -> Never {
     print("  --now                   Enable/disable and immediately start/stop")
     print("  --quiet, -q             Suppress successful output")
     print("  --no-legend             Omit headers")
-    print("  --no-pager              Accepted for systemctl compatibility")
+    print("  --no-pager              Disable the pager")
     print("  --system                Accepted; system scope is the default")
     print("  --user                  Use user unit directory where supported")
     print("  --plain                 Accepted for systemctl compatibility")
@@ -49,6 +50,7 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
     var tokens = Array(args.dropFirst())
     var quiet = false
     var noLegend = false
+    var noPager = false
     var now = false
     var index = 0
 
@@ -58,8 +60,11 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
         case "--quiet", "-q":
             quiet = true
             tokens.remove(at: index)
-        case "--no-legend", "--no-pager", "--system", "--user", "--plain":
+        case "--no-legend", "--system", "--user", "--plain":
             if token == "--no-legend" { noLegend = true }
+            tokens.remove(at: index)
+        case "--no-pager":
+            noPager = true
             tokens.remove(at: index)
         case "--now":
             now = true
@@ -77,7 +82,7 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
     guard let actionString = tokens.first, let action = SystemctlAction(rawValue: actionString) else { usage() }
     tokens.removeFirst()
     if action != .daemonReload && action != .listUnits && action != .listUnitFiles && tokens.isEmpty { usage() }
-    return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend), now)
+    return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend, noPager: noPager), now)
 }
 
 func connect() throws -> Int32 {
@@ -123,6 +128,41 @@ func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     }
 }
 
+func outputStatus(_ output: String, noPager: Bool) {
+    guard !output.isEmpty else { return }
+    guard !noPager,
+          isatty(STDOUT_FILENO) == 1,
+          ProcessInfo.processInfo.environment["SYSTEMD_PAGER"] != "cat"
+    else {
+        print(output)
+        return
+    }
+
+    let pager = ProcessInfo.processInfo.environment["SYSTEMD_PAGER"] ?? ProcessInfo.processInfo.environment["PAGER"] ?? "less -R"
+    let command = pager.split(separator: " ").map(String.init)
+    guard let executable = command.first else {
+        print(output)
+        return
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = command
+    let input = Pipe()
+    process.standardInput = input
+    process.standardOutput = FileHandle.standardOutput
+    process.standardError = FileHandle.standardError
+
+    do {
+        try process.run()
+        input.fileHandleForWriting.write(output.data(using: .utf8) ?? Data())
+        input.fileHandleForWriting.closeFile()
+        process.waitUntilExit()
+    } catch {
+        print(output)
+    }
+}
+
 var quietOnError = false
 
 do {
@@ -150,7 +190,7 @@ do {
 
     switch options.action {
     case .status:
-        if !options.quiet, !response.output.isEmpty { print(response.output) }
+        if !options.quiet { outputStatus(response.output, noPager: options.noPager) }
     case .listUnits, .listUnitFiles:
         if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
     case .isActive:
