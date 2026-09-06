@@ -9,11 +9,11 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
     guard !plain, isatty(STDOUT_FILENO) == 1 else { return output }
 
     let reset = "\u{001B}[0m"
-    let green = "\u{001B}[32m"
+    let green = "\u{001B}[38;2;141;247;122m"
     let red = "\u{001B}[31m"
     let yellow = "\u{001B}[33m"
     let dim = "\u{001B}[2m"
-    let underline = "\u{001B}[4m"
+    let dashedUnderline = "\u{001B}[4:5m"
     let bold = "\u{001B}[1m"
 
     let blocks = output.components(separatedBy: "\n\n")
@@ -22,14 +22,14 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
     for (index, block) in blocks.enumerated() {
         guard !block.isEmpty else { continue }
         let status = index < statuses.count ? statuses[index] : nil
+
         let stateColor: String
         if status?.result != "success" {
             stateColor = red
         } else {
             switch status?.subState {
             case "active": stateColor = green
-            case "activating": stateColor = yellow
-            case "exited": stateColor = yellow
+            case "activating", "exited": stateColor = yellow
             default: stateColor = dim
             }
         }
@@ -49,29 +49,25 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
                     let path = String(line[pathStart..<semicolon])
                     let before = String(line[..<pathStart])
                     let after = String(line[semicolon...])
-                    line = before + underline + path + reset + after
+                    line = before + dashedUnderline + path + reset + after
                 }
-                line = line.replacingOccurrences(of: "; enabled", with: "; \(green)enabled\(reset)")
-                line = line.replacingOccurrences(of: "; disabled", with: "; \(red)disabled\(reset)")
+                line = line.replacingOccurrences(of: "; enabled", with: "; \(bold)\(green)enabled\(reset)")
+                line = line.replacingOccurrences(of: "; disabled", with: "; \(bold)\(red)disabled\(reset)")
             } else if line.hasPrefix("     Active:") {
                 if line.contains("active (running)") {
-                    line = line.replacingOccurrences(of: "active (running)", with: "\(green)active (running)\(reset)")
+                    line = line.replacingOccurrences(of: "active (running)", with: "\(bold)\(green)active (running)\(reset)")
                 } else if line.contains("activating (start)") {
-                    line = line.replacingOccurrences(of: "activating (start)", with: "\(yellow)activating (start)\(reset)")
+                    line = line.replacingOccurrences(of: "activating (start)", with: "\(bold)\(yellow)activating (start)\(reset)")
                 } else if line.contains("inactive (exited)") {
-                    line = line.replacingOccurrences(of: "inactive (exited)", with: "\(yellow)inactive (exited)\(reset)")
+                    line = line.replacingOccurrences(of: "inactive (exited)", with: "\(bold)\(yellow)inactive (exited)\(reset)")
                 } else if line.contains("inactive (dead)") {
-                    line = line.replacingOccurrences(of: "inactive (dead)", with: "\(dim)inactive (dead)\(reset)")
+                    line = line.replacingOccurrences(of: "inactive (dead)", with: "\(bold)\(dim)inactive (dead)\(reset)")
                 }
             } else if line.hasPrefix("TriggeredBy:") {
                 line = line.replacingOccurrences(of: "●", with: "\(green)●\(reset)")
             } else if line.hasPrefix("     Docs: ") {
                 let prefix = "     Docs: "
-                line = prefix + underline + String(line.dropFirst(prefix.count)) + reset
-            } else if line.hasPrefix("    Process:") && line.contains("SUCCESS") {
-                line = green + line + reset
-            } else if line.hasPrefix("    Process:") && line.contains("FAILED") {
-                line = red + line + reset
+                line = prefix + String(line.dropFirst(prefix.count))
             } else if line.hasPrefix("   Main PID:") {
                 line = bold + line + reset
             }
