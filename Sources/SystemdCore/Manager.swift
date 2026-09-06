@@ -53,6 +53,12 @@ public final class ServiceManager: @unchecked Sendable {
         for name in units.keys where runtime[name] == nil { runtime[name] = Runtime() }
     }
 
+    public func startEnabledUnits() {
+        let names: [String]
+        lock.lock(); names = enabled.sorted(); lock.unlock()
+        for name in names { try? start(name) }
+    }
+
     public func status(_ name: String) throws -> UnitStatus {
         let normalized = normalize(name)
         lock.lock(); defer { lock.unlock() }
@@ -103,12 +109,6 @@ public final class ServiceManager: @unchecked Sendable {
         for dependency in unit.conflicts {
             if let depStatus = try? status(dependency), depStatus.activeState == "active" { try stop(dependency) }
         }
-        for dependency in unit.after {
-            if let depStatus = try? status(dependency), depStatus.activeState != "active", units[normalize(dependency)] != nil {
-                try startRecursive(normalize(dependency), visiting: &visiting)
-            }
-        }
-
         try launch(unit)
     }
 
