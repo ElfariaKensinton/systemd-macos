@@ -69,7 +69,9 @@ public struct ServiceConfig: Sendable {
     public var timeoutStopSec: TimeInterval = 90
     public var user: String?
     public var group: String?
+    public var supplementaryGroups: [String] = []
     public var workingDirectory: String?
+    public var umask: UInt16?
     public var environment: [String: String] = [:]
     public var environmentFiles: [String] = []
     public var remainAfterExit = false
@@ -77,6 +79,9 @@ public struct ServiceConfig: Sendable {
     public var standardOutput: String = "journal"
     public var standardError: String = "inherit"
     public var limitNOFILE: UInt64?
+    public var capabilityBoundingSet: [String] = []
+    public var ambientCapabilities: [String] = []
+    public var noNewPrivileges = false
 
     public init() {}
 }
