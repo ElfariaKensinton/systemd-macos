@@ -67,7 +67,8 @@ public final class ServiceManager: @unchecked Sendable {
         return UnitStatus(name: normalized, description: unit.description,
                           loadState: "loaded", activeState: state.state == "active" ? "active" : "inactive",
                           subState: state.state, mainPID: state.mainPID,
-                          enabled: enabled.contains(normalized), path: unit.path.path, result: state.result)
+                          enabled: enabled.contains(normalized), path: unit.path.path, result: state.result,
+                          activeSince: state.startedAt)
     }
 
     public func listUnits() -> [UnitStatus] {
@@ -78,7 +79,8 @@ public final class ServiceManager: @unchecked Sendable {
             return UnitStatus(name: name, description: unit.description,
                               loadState: "loaded", activeState: state.state == "active" ? "active" : "inactive",
                               subState: state.state, mainPID: state.mainPID,
-                              enabled: enabled.contains(name), path: unit.path.path, result: state.result)
+                              enabled: enabled.contains(name), path: unit.path.path, result: state.result,
+                              activeSince: state.startedAt)
         }
     }
 

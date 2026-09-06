@@ -150,9 +150,13 @@ final class UnixServer {
 
     private func render(_ statuses: [UnitStatus]) -> String {
         var blocks: [String] = []
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "MMM dd HH:mm:ss"
+        let stampFormatter = DateFormatter()
+        stampFormatter.locale = Locale(identifier: "en_US_POSIX")
+        stampFormatter.dateFormat = "MMM dd HH:mm:ss"
+
+        let sinceFormatter = DateFormatter()
+        sinceFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sinceFormatter.dateFormat = "EEE yyyy-MM-dd HH:mm:ss"
 
         for status in statuses {
             let marker = status.activeState == "active" ? "●" : "○"
@@ -170,7 +174,21 @@ final class UnixServer {
             let enabledText = status.enabled ? "enabled" : "disabled"
             let path = status.path ?? "/etc/systemd/system/\(status.name)"
             lines.append("     Loaded: loaded (\(path); \(enabledText))")
-            lines.append("     Active: \(stateText) (\(status.result))")
+
+            // Real systemd only appends a (result) qualifier for terminal
+            // states where the result is meaningful (e.g. "failed" units
+            // show "(Result: exit-code)"). Printing "(success)" next to
+            // "inactive (dead)" for a unit that was simply never started is
+            // misleading — a plain "inactive (dead)" line, or one that
+            // reports the actual failure, matches what systemd shows.
+            var activeLine = "     Active: \(stateText)"
+            if status.activeState == "active", let since = status.activeSince {
+                activeLine += " since \(sinceFormatter.string(from: since)); \(relativeDuration(from: since))"
+            } else if status.result != "success" {
+                activeLine += " (Result: \(status.result))"
+            }
+            lines.append(activeLine)
+
             if status.mainPID != 0 {
                 lines.append("   Main PID: \(status.mainPID)")
             }
@@ -180,17 +198,35 @@ final class UnixServer {
             let stdout = tail(url: stdoutURL, lines: 10)
             let stderr = tail(url: stderrURL, lines: 10)
             if !stdout.isEmpty || !stderr.isEmpty {
-                let stamp = formatter.string(from: (try? FileManager.default.attributesOfItem(atPath: stdoutURL.path)[.modificationDate] as? Date) ?? Date())
+                let stdoutStamp = stampFormatter.string(from: modificationDate(of: stdoutURL))
+                let stderrStamp = stampFormatter.string(from: modificationDate(of: stderrURL))
                 let pid = status.mainPID
                 lines.append("")
-                for line in stdout + stderr {
-                    let cleaned = sanitizeJournalLine(line)
-                    lines.append("\(stamp) \(status.name)[\(pid)]: \(cleaned)")
+                for line in stdout {
+                    lines.append("\(stdoutStamp) \(status.name)[\(pid)]: \(sanitizeJournalLine(line))")
+                }
+                for line in stderr {
+                    lines.append("\(stderrStamp) \(status.name)[\(pid)]: \(sanitizeJournalLine(line))")
                 }
             }
             blocks.append(lines.joined(separator: "\n"))
         }
         return blocks.joined(separator: "\n\n")
+    }
+
+    private func relativeDuration(from date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "\(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)min \(seconds % 60)s ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h \(minutes % 60)min ago" }
+        let days = hours / 24
+        return "\(days) day\(days == 1 ? "" : "s") ago"
+    }
+
+    private func modificationDate(of url: URL) -> Date {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? Date()
     }
 
     private func sanitizeJournalLine(_ line: String) -> String {

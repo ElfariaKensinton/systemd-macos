@@ -1,0 +1,23 @@
+@@ -135,14 +135,18 @@
+     let environment = ProcessInfo.processInfo.environment
+     let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+ 
+-    if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 {
++    if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
+         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+         return
+     }
+ 
+-    // Match systemd's interactive status feel: keep the rendered status on
+-    // screen when the pager exits instead of clearing the terminal.
+-    let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
++    // Match systemd's interactive status feel:
++    //  -F  quit immediately if the content fits on one screen (no pager
++    //      shown for short "systemctl status" output, same as real systemd)
++    //  -R  pass through ANSI color/format escapes instead of showing them raw
++    //  -S  chop long lines instead of soft-wrapping them
++    //  -X  don't clear the screen / leave the rendered status on screen on exit
++    let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRSX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+     guard let executable = command.first else {
+         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
+         return

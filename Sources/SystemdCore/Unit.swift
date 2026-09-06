@@ -90,9 +90,11 @@ public struct UnitStatus: Codable, Sendable {
     public var enabled: Bool
     public var path: String?
     public var result: String
+    public var activeSince: Date?
 
     public init(name: String, description: String?, loadState: String, activeState: String,
-                subState: String, mainPID: Int32, enabled: Bool, path: String?, result: String) {
+                subState: String, mainPID: Int32, enabled: Bool, path: String?, result: String,
+                activeSince: Date? = nil) {
         self.name = name
         self.description = description
         self.loadState = loadState
@@ -102,6 +104,7 @@ public struct UnitStatus: Codable, Sendable {
         self.enabled = enabled
         self.path = path
         self.result = result
+        self.activeSince = activeSince
     }
 }
 
