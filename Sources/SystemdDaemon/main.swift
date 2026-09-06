@@ -156,7 +156,7 @@ final class UnixServer {
 
     private func tail(url: URL, lines: Int) -> [String] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return Array(text.split(whereSeparator: { $0.isNewline }, omittingEmptySubsequences: true).suffix(lines)).map(String.init)
+        return Array(text.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }).suffix(lines)).map(String.init)
     }
 }
 
