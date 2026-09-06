@@ -209,7 +209,6 @@ var quietOnError = false
 do {
     let (options, now) = try parseArguments(CommandLine.arguments)
     quietOnError = options.quiet
-    let response: IPCResponse
 
     if now && options.action == .enable {
         let enabled = try request(IPCRequest(action: .enable, units: options.units))
@@ -217,17 +216,33 @@ do {
             if !options.quiet, let error = enabled.error { fputs("\(error)\n", stderr) }
             exit(enabled.exitCode)
         }
-        response = try request(IPCRequest(action: .start, units: options.units))
-    } else if now && options.action == .disable {
+        if !options.quiet, !enabled.output.isEmpty { print(enabled.output) }
+
+        let started = try request(IPCRequest(action: .start, units: options.units))
+        if started.exitCode != 0 {
+            if !options.quiet, let error = started.error { fputs("\(error)\n", stderr) }
+            exit(started.exitCode)
+        }
+        exit(0)
+    }
+
+    if now && options.action == .disable {
         let stopped = try request(IPCRequest(action: .stop, units: options.units))
         guard stopped.exitCode == 0 else {
             if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
             exit(stopped.exitCode)
         }
-        response = try request(IPCRequest(action: .disable, units: options.units))
-    } else {
-        response = try request(IPCRequest(action: options.action, units: options.units))
+
+        let disabled = try request(IPCRequest(action: .disable, units: options.units))
+        guard disabled.exitCode == 0 else {
+            if !options.quiet, let error = disabled.error { fputs("\(error)\n", stderr) }
+            exit(disabled.exitCode)
+        }
+        if !options.quiet, !disabled.output.isEmpty { print(disabled.output) }
+        exit(0)
     }
+
+    let response = try request(IPCRequest(action: options.action, units: options.units))
 
     switch options.action {
     case .status:
