@@ -296,6 +296,12 @@ public final class ServiceManager: @unchecked Sendable {
         process.arguments = invocation.arguments
         process.environment = environment(for: unit)
         if let directory = unit.service.workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
+
+        // ExecStartPre/ExecStartPost/ExecStop are control processes. Their
+        // output must not leak into the service's stdout/stderr streams.
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
         try process.run()
         process.waitUntilExit()
         if process.terminationStatus != 0 { throw ManagerError.commandFailed(command, process.terminationStatus) }
@@ -330,17 +336,12 @@ public final class ServiceManager: @unchecked Sendable {
     }
 
     private func validatePermissionConfiguration(_ unit: UnitFile) throws {
-        let requestedUser = unit.service.user?.lowercased()
-        let isRootTarget = requestedUser == nil || requestedUser == "root"
         let capabilities = unit.service.capabilityBoundingSet + unit.service.ambientCapabilities
         if !capabilities.isEmpty {
             throw ManagerError.invalidConfiguration("CapabilityBoundingSet= and AmbientCapabilities= are Linux-only and cannot be enforced on macOS")
         }
         if unit.service.noNewPrivileges {
             throw ManagerError.invalidConfiguration("NoNewPrivileges= has no exact macOS equivalent and cannot be enforced")
-        }
-        if isRootTarget && requestedUser == "root" && !capabilities.isEmpty {
-            throw ManagerError.permission("Linux capabilities are not available on macOS")
         }
     }
 
