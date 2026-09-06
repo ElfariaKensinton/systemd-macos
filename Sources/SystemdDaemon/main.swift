@@ -73,17 +73,17 @@ final class UnixServer {
         case .listUnitFiles:
             return IPCResponse(exitCode: 0, statuses: manager.listUnitFiles())
         case .start:
-            return try perform(request.units) { try manager.start($0) }
+            return perform(request.units, actionName: "start") { try manager.start($0) }
         case .stop:
-            return try perform(request.units) { try manager.stop($0) }
+            return perform(request.units, actionName: "stop") { try manager.stop($0) }
         case .restart:
-            return try perform(request.units) { try manager.restart($0) }
+            return perform(request.units, actionName: "restart") { try manager.restart($0) }
         case .reload:
-            return try perform(request.units) { try manager.restart($0) }
+            return perform(request.units, actionName: "reload") { try manager.restart($0) }
         case .enable:
-            return try perform(request.units) { try manager.enable($0) }
+            return perform(request.units, actionName: "enable") { try manager.enable($0) }
         case .disable:
-            return try perform(request.units) { try manager.disable($0) }
+            return perform(request.units, actionName: "disable") { try manager.disable($0) }
         case .status:
             let statuses = try request.units.map(manager.status)
             let output = render(statuses)
@@ -108,9 +108,26 @@ final class UnixServer {
         }
     }
 
-    private func perform(_ units: [String], _ action: (String) throws -> Void) throws -> IPCResponse {
-        guard !units.isEmpty else { throw ManagerError.ipc("No unit name specified.") }
-        for unit in units { try action(unit) }
+    private func perform(_ units: [String], actionName: String, _ action: (String) throws -> Void) -> IPCResponse {
+        guard !units.isEmpty else {
+            return IPCResponse(exitCode: 1, error: "No unit name specified.")
+        }
+
+        for unit in units {
+            do {
+                try action(unit)
+            } catch ManagerError.commandFailed {
+                return IPCResponse(
+                    exitCode: 1,
+                    error: "Job for \(unit) failed because the control process exited with error code.\nSee \"systemctl status \(unit)\" and \"journalctl -xeu \(unit)\" for details."
+                )
+            } catch {
+                return IPCResponse(
+                    exitCode: 1,
+                    error: "Failed to \(actionName) \(unit): \(error.localizedDescription)"
+                )
+            }
+        }
         return IPCResponse(exitCode: 0)
     }
 
