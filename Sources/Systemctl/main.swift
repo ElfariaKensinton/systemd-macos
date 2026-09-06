@@ -17,54 +17,67 @@ func usage() -> Never {
     print("Control the systemd-macos service manager.")
     print("")
     print("Commands:")
-    print("  start UNIT...          Start units")
-    print("  stop UNIT...           Stop units")
-    print("  restart UNIT...        Restart units")
-    print("  status UNIT...         Show runtime status")
-    print("  enable UNIT...         Enable units for boot")
-    print("  disable UNIT...        Disable units for boot")
-    print("  is-active UNIT...      Check whether units are active")
-    print("  is-enabled UNIT...     Check whether units are enabled")
-    print("  daemon-reload          Reload unit files")
-    print("  list-units             List loaded units")
-    print("  list-unit-files        List installed unit files")
-    print("  cat UNIT...            Show unit file contents")
+    print("  start UNIT...           Start units")
+    print("  stop UNIT...            Stop units")
+    print("  restart UNIT...         Restart units")
+    print("  reload UNIT...          Reload units")
+    print("  status UNIT...          Show runtime status")
+    print("  enable UNIT...          Enable units for boot")
+    print("  disable UNIT...         Disable units for boot")
+    print("  is-active UNIT...       Check whether units are active")
+    print("  is-enabled UNIT...      Check whether units are enabled")
+    print("  daemon-reload           Reload unit files")
+    print("  list-units              List loaded units")
+    print("  list-unit-files         List installed unit files")
+    print("  cat UNIT...             Show unit file contents")
     print("  show UNIT...            Show machine-readable properties")
     print("")
     print("Options:")
-    print("  --now                  Enable/disable and immediately start/stop")
-    print("  --quiet, -q            Suppress successful output")
-    print("  --no-legend            Omit headers")
+    print("  --now                   Enable/disable and immediately start/stop")
+    print("  --quiet, -q             Suppress successful output")
+    print("  --no-legend             Omit headers")
     print("  --no-pager              Accepted for systemctl compatibility")
     print("  --system                Accepted; system scope is the default")
     print("  --user                  Use user unit directory where supported")
+    print("  --plain                 Accepted for systemctl compatibility")
+    print("  --version               Show version")
+    print("  --help, -h              Show this help")
     exit(1)
 }
 
 func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
-    var remaining = Array(args.dropFirst())
+    var tokens = Array(args.dropFirst())
     var quiet = false
     var noLegend = false
     var now = false
     var index = 0
 
-    while index < remaining.count, remaining[index].hasPrefix("-") {
-        switch remaining[index] {
-        case "--quiet", "-q": quiet = true
-        case "--no-legend": noLegend = true
-        case "--no-pager", "--system", "--user", "--plain": break
-        case "--now": now = true
-        case "--version": print("systemd-macos 0.1.0"); exit(0)
+    while index < tokens.count {
+        let token = tokens[index]
+        switch token {
+        case "--quiet", "-q":
+            quiet = true
+            tokens.remove(at: index)
+        case "--no-legend", "--no-pager", "--system", "--user", "--plain":
+            if token == "--no-legend" { noLegend = true }
+            tokens.remove(at: index)
+        case "--now":
+            now = true
+            tokens.remove(at: index)
+        case "--version":
+            print("systemd-macos 0.1.0")
+            exit(0)
         case "--help", "-h": usage()
-        default: throw ManagerError.ipc("unknown option \(remaining[index])")
+        default:
+            if token.hasPrefix("-") { throw ManagerError.ipc("unknown option \(token)") }
+            index += 1
         }
-        remaining.remove(at: index)
     }
 
-    guard let actionString = remaining.first, let action = SystemctlAction(rawValue: actionString) else { usage() }
-    remaining.removeFirst()
-    if action != .daemonReload && action != .listUnits && action != .listUnitFiles && remaining.isEmpty { usage() }
-    return (CLIOptions(action: action, units: remaining, quiet: quiet, noLegend: noLegend), now)
+    guard let actionString = tokens.first, let action = SystemctlAction(rawValue: actionString) else { usage() }
+    tokens.removeFirst()
+    if action != .daemonReload && action != .listUnits && action != .listUnitFiles && tokens.isEmpty { usage() }
+    return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend), now)
 }
 
 func connect() throws -> Int32 {
@@ -73,6 +86,10 @@ func connect() throws -> Int32 {
     var address = sockaddr_un()
     address.sun_family = sa_family_t(AF_UNIX)
     let pathBytes = Array(SystemdPaths.socket.path.utf8) + [0]
+    guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+        close(fd)
+        throw ManagerError.ipc("socket path is too long")
+    }
     withUnsafeMutableBytes(of: &address.sun_path) { destination in
         destination.copyBytes(from: pathBytes)
     }
@@ -96,7 +113,7 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
     _ = payload.withUnsafeBytes { send(fd, $0.baseAddress, payload.count, 0) }
     shutdown(fd, SHUT_WR)
     let responseData = FileHandle(fileDescriptor: fd, closeOnDealloc: false).readDataToEndOfFile()
-    return try codec.decode(IPCResponse.self, from: responseData.trimmingCharacters(in: .whitespacesAndNewlines))
+    return try codec.decode(IPCResponse.self, from: responseData)
 }
 
 func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
@@ -106,22 +123,23 @@ func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     }
 }
 
+var quietOnError = false
+
 do {
     let (options, now) = try parseArguments(CommandLine.arguments)
-    var action = options.action
-    var response: IPCResponse
+    quietOnError = options.quiet
+    let response: IPCResponse
 
-    if now && action == .enable {
-        response = try request(IPCRequest(action: .enable, units: options.units))
-        guard response.exitCode == 0 else { throw ManagerError.ipc(response.error ?? "enable failed") }
+    if now && options.action == .enable {
+        let enabled = try request(IPCRequest(action: .enable, units: options.units))
+        guard enabled.exitCode == 0 else { throw ManagerError.ipc(enabled.error ?? "enable failed") }
         response = try request(IPCRequest(action: .start, units: options.units))
-    } else if now && action == .disable {
-        response = try request(IPCRequest(action: .stop, units: options.units))
-        guard response.exitCode == 0 else { throw ManagerError.ipc(response.error ?? "stop failed") }
+    } else if now && options.action == .disable {
+        let stopped = try request(IPCRequest(action: .stop, units: options.units))
+        guard stopped.exitCode == 0 else { throw ManagerError.ipc(stopped.error ?? "stop failed") }
         response = try request(IPCRequest(action: .disable, units: options.units))
     } else {
-        action = options.action
-        response = try request(IPCRequest(action: action, units: options.units))
+        response = try request(IPCRequest(action: options.action, units: options.units))
     }
 
     if response.exitCode != 0 {
@@ -129,18 +147,18 @@ do {
         exit(response.exitCode)
     }
 
-    if !options.quiet {
-        switch action {
-        case .status: print(response.output)
-        case .listUnits, .listUnitFiles: printStatuses(response.statuses, noLegend: options.noLegend)
-        case .isActive, .isEnabled: if let first = response.statuses.first { print(first.activeState == "active" || first.enabled ? "active" : "inactive") }
-        case .cat, .show: if !response.output.isEmpty { print(response.output) }
-        case .daemonReload: print("Reloaded systemd-macos unit files.")
-        default: break
-        }
+    guard !options.quiet else { exit(0) }
+    switch options.action {
+    case .status: print(response.output)
+    case .listUnits, .listUnitFiles: printStatuses(response.statuses, noLegend: options.noLegend)
+    case .isActive: if let first = response.statuses.first { print(first.activeState == "active" ? "active" : "inactive") }
+    case .isEnabled: if let first = response.statuses.first { print(first.enabled ? "enabled" : "disabled") }
+    case .cat, .show: if !response.output.isEmpty { print(response.output) }
+    case .daemonReload: print("Reloaded systemd-macos unit files.")
+    default: break
     }
     exit(0)
 } catch {
-    if !options.quiet { fputs("systemctl: \(error.localizedDescription)\n", stderr) }
+    if !quietOnError { fputs("systemctl: \(error.localizedDescription)\n", stderr) }
     exit(1)
 }
