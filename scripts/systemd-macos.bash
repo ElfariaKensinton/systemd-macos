@@ -3,7 +3,16 @@
 # /usr/local/share/bash-completion/completions/systemctl and journalctl.
 
 _systemd_macos_units() {
-    local dir file
+    local units dir file
+
+    if command -v systemctl >/dev/null 2>&1; then
+        units=$(systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}')
+        if [ -n "$units" ]; then
+            printf '%s\n' "$units"
+            return 0
+        fi
+    fi
+
     for dir in /etc/systemd/system /usr/local/lib/systemd/system; do
         for file in "$dir"/*.service; do
             [ -e "$file" ] || continue
@@ -66,7 +75,7 @@ _systemctl() {
 }
 
 _journalctl() {
-    local cur prev i
+    local cur prev
     cur=${COMP_WORDS[COMP_CWORD]}
     prev=${COMP_WORDS[COMP_CWORD-1]}
 
