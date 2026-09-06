@@ -121,6 +121,11 @@ final class UnixServer {
                     exitCode: 1,
                     error: "Job for \(unit) failed because the control process exited with error code.\nSee \"systemctl status \(unit)\" and \"journalctl -xeu \(unit)\" for details."
                 )
+            } catch ManagerError.unitNotFound {
+                return IPCResponse(
+                    exitCode: 5,
+                    error: "Failed to \(actionName) \(unit): Unit \(unit) not found."
+                )
             } catch {
                 return IPCResponse(
                     exitCode: 1,
@@ -133,6 +138,10 @@ final class UnixServer {
 
     private func render(_ statuses: [UnitStatus]) -> String {
         var blocks: [String] = []
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM dd HH:mm:ss"
+
         for status in statuses {
             let marker = status.activeState == "active" ? "●" : "○"
             let description = status.description ?? ""
@@ -153,22 +162,31 @@ final class UnixServer {
             if status.mainPID != 0 {
                 lines.append("   Main PID: \(status.mainPID)")
             }
-            lines.append("        Docs: systemd-macos")
 
             let stdoutURL = SystemdPaths.logDirectory.appendingPathComponent("\(status.name).stdout.log")
             let stderrURL = SystemdPaths.logDirectory.appendingPathComponent("\(status.name).stderr.log")
             let stdout = tail(url: stdoutURL, lines: 10)
             let stderr = tail(url: stderrURL, lines: 10)
             if !stdout.isEmpty || !stderr.isEmpty {
+                let stamp = formatter.string(from: (try? FileManager.default.attributesOfItem(atPath: stdoutURL.path)[.modificationDate] as? Date) ?? Date())
+                let pid = status.mainPID
                 lines.append("")
-                lines.append("Sep 06 00:00:00 systemd-macos \(status.name)[\(status.mainPID)]: Journal output")
                 for line in stdout + stderr {
-                    lines.append("Sep 06 00:00:00 systemd-macos \(status.name)[\(status.mainPID)]: \(line)")
+                    let cleaned = sanitizeJournalLine(line)
+                    lines.append("\(stamp) \(status.name)[\(pid)]: \(cleaned)")
                 }
             }
             blocks.append(lines.joined(separator: "\n"))
         }
         return blocks.joined(separator: "\n\n")
+    }
+
+    private func sanitizeJournalLine(_ line: String) -> String {
+        var value = line
+        if value.hasPrefix("/bin/sh: ") {
+            value.removeFirst("/bin/sh: ".count)
+        }
+        return value
     }
 
     private func tail(url: URL, lines: Int) -> [String] {
@@ -182,6 +200,6 @@ let server = UnixServer(manager: manager)
 do {
     try server.run()
 } catch {
-    fputs("systemd: \(error.localizedDescription)\n", stderr)
+    fputs("Failed to start service manager: \(error.localizedDescription)\n", stderr)
     exit(1)
 }
