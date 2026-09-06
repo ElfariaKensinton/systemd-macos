@@ -15,7 +15,7 @@ public enum ServiceType: String, Codable, Sendable {
 
 public enum RestartPolicy: String, Codable, Sendable {
     case no
-    case onSuccess
+    case onSuccess = "on-success"
     case onFailure = "on-failure"
     case onAbnormal = "on-abnormal"
     case onWatchdog = "on-watchdog"
