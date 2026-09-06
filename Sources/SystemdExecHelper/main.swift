@@ -12,18 +12,31 @@ struct Arguments {
 
 @inline(__always)
 func fail(_ message: String, code: Int32 = 1) -> Never {
-    fputs("systemd-exec-helper: \(message)\n", stderr)
+    let data = Data("systemd-exec-helper: \(message)\n".utf8)
+    try? FileHandle.standardError.write(contentsOf: data)
     exit(code)
 }
 
-func lookupUser(_ name: String) -> (uid: uid_t, gid: gid_t) {
-    guard let pointer = getpwnam(name) else { fail("user \(name) not found") }
-    return (pointer.pointee.pw_uid, pointer.pointee.pw_gid)
+func lookupUser(_ name: String) -> passwd {
+    var entry = passwd()
+    let bufferSize = 16_384
+    let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+    var result: UnsafeMutablePointer<passwd>?
+    let rc = getpwnam_r(name, &entry, buffer, bufferSize, &result)
+    guard rc == 0, result != nil else { fail("user \(name) not found") }
+    return entry
 }
 
 func lookupGroup(_ name: String) -> gid_t {
-    guard let pointer = getgrnam(name) else { fail("group \(name) not found") }
-    return pointer.pointee.gr_gid
+    var entry = group()
+    let bufferSize = 16_384
+    let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+    var result: UnsafeMutablePointer<group>?
+    let rc = getgrnam_r(name, &entry, buffer, bufferSize, &result)
+    guard rc == 0, result != nil else { fail("group \(name) not found") }
+    return entry.gr_gid
 }
 
 func parseOctalMode(_ value: String) -> mode_t {
@@ -51,28 +64,22 @@ func parseArguments() -> Arguments {
     while index < args.count {
         switch args[index] {
         case "--user":
-            index += 1
-            guard index < args.count else { fail("--user requires a value") }
+            index += 1; guard index < args.count else { fail("--user requires a value") }
             user = args[index]
         case "--group":
-            index += 1
-            guard index < args.count else { fail("--group requires a value") }
+            index += 1; guard index < args.count else { fail("--group requires a value") }
             group = args[index]
         case "--supplementary-groups":
-            index += 1
-            guard index < args.count else { fail("--supplementary-groups requires a value") }
+            index += 1; guard index < args.count else { fail("--supplementary-groups requires a value") }
             supplementary = args[index].split(separator: ",", omittingEmptySubsequences: true).map(String.init)
         case "--umask":
-            index += 1
-            guard index < args.count else { fail("--umask requires a value") }
+            index += 1; guard index < args.count else { fail("--umask requires a value") }
             umask = parseOctalMode(args[index])
         case "--nofile":
-            index += 1
-            guard index < args.count else { fail("--nofile requires a value") }
+            index += 1; guard index < args.count else { fail("--nofile requires a value") }
             nofile = parseLimit(args[index])
         case "--command":
-            index += 1
-            guard index < args.count else { fail("--command requires a value") }
+            index += 1; guard index < args.count else { fail("--command requires a value") }
             command = args[index]
         default:
             fail("unknown argument \(args[index])")
@@ -91,14 +98,14 @@ guard getuid() == 0 else {
     fail("privilege-changing execution requires root", code: 77)
 }
 
-var targetUID: uid_t = getuid()
-var targetGID: gid_t = getgid()
+var targetUID: uid_t = 0
+var targetGID: gid_t = 0
 var targetUser: String?
 
 if let user = arguments.user {
-    let account = lookupUser(user)
-    targetUID = account.uid
-    targetGID = account.gid
+    let entry = lookupUser(user)
+    targetUID = entry.pw_uid
+    targetGID = entry.pw_gid
     targetUser = user
 }
 
@@ -113,16 +120,20 @@ if let nofile = arguments.nofile {
     }
 }
 
+if let umask = arguments.umask {
+    _ = Darwin.umask(umask)
+}
+
 if !arguments.supplementaryGroups.isEmpty {
     var groups = arguments.supplementaryGroups.map { lookupGroup($0) }
     let rc = groups.withUnsafeMutableBufferPointer { buffer in
-        setgroups(buffer.count, buffer.baseAddress)
+        setgroups(Int32(buffer.count), buffer.baseAddress)
     }
     guard rc == 0 else {
         fail("setgroups failed: \(String(cString: strerror(errno)))")
     }
 } else if let targetUser {
-    guard initgroups(targetUser, targetGID) == 0 else {
+    guard initgroups(targetUser, Int32(targetGID)) == 0 else {
         fail("initgroups failed for \(targetUser): \(String(cString: strerror(errno)))")
     }
 }
@@ -136,10 +147,20 @@ if arguments.user != nil || arguments.group != nil {
     }
 }
 
-if let umask = arguments.umask {
-    _ = Darwin.umask(umask)
+let shell = strdup("/bin/sh")!
+let shellName = strdup("sh")!
+let dashC = strdup("-c")!
+let command = strdup(arguments.command)!
+defer {
+    free(shell)
+    free(shellName)
+    free(dashC)
+    free(command)
 }
 
-execl("/bin/sh", "sh", "-c", arguments.command, nil)
-fprintf(stderr, "systemd-exec-helper: exec failed: %s\n", strerror(errno))
-exit(126)
+var argv: [UnsafeMutablePointer<CChar>?] = [shellName, dashC, command, nil]
+argv.withUnsafeMutableBufferPointer { buffer in
+    execv(shell, buffer.baseAddress!)
+}
+
+fail("exec failed: \(String(cString: strerror(errno)))", code: 126)
