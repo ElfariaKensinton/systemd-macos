@@ -63,9 +63,32 @@ The resulting binaries are:
 .build/release/systemctl
 ```
 
-## Install
+## Install from GitHub Releases
 
-The installer builds the release binaries, installs them under `/usr/local/bin`, creates the systemd-style unit and state directories, and registers a minimal LaunchDaemon whose only responsibility is starting and supervising the systemd-macos manager.
+The recommended installation method downloads a verified binary for the current Mac architecture from the latest GitHub Release, installs the daemon, and registers its LaunchDaemon so it starts at boot.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash
+```
+
+The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`), verifies the SHA-256 checksum published with the release, and uses the stable `releases/latest/download` asset aliases.
+
+## Build and release
+
+The GitHub Actions **Build and Release** workflow is manually triggered from the Actions tab. It builds and tests both supported macOS architectures. The workflow can either keep the result as Actions artifacts or publish it as a GitHub Release.
+
+Release tags and titles are generated automatically. For example:
+
+```text
+Tag:   v0.1.0-build.20260906.42
+Name:  systemd-macos 0.1.0 — Build 42 (20260906)
+```
+
+Published releases contain versioned archives, SHA-256 checksums, and stable `latest` aliases used by the one-line installer.
+
+## Install from a source checkout
+
+For development or when working from source:
 
 ```sh
 sudo sh scripts/install.sh
