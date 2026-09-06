@@ -1,4 +1,5 @@
 import Foundation
+import SystemdCore
 
 #if canImport(Darwin)
 import Darwin
@@ -21,7 +22,6 @@ func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool
     for (index, block) in blocks.enumerated() {
         guard !block.isEmpty else { continue }
         let status = index < statuses.count ? statuses[index] : nil
-
         let stateColor: String
         if status?.result != "success" {
             stateColor = red
