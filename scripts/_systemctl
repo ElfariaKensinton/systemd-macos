@@ -4,11 +4,10 @@ _systemd_macos_units() {
   local -a units files
 
   if (( $+commands[systemctl] )); then
-    units=( ${(f)"$(command systemctl list-unit-files --no-legend 2>/dev/null)"} )
-    units=( ${units%%[[:space:]]*} )
+    units=( ${(f)"$(command systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}' )"} )
     units=( ${units:#} )
     if (( ${#units} )); then
-      print -rl -- "${units[@]}"
+      _describe 'unit' units
       return 0
     fi
   fi
@@ -18,7 +17,7 @@ _systemd_macos_units() {
     /usr/local/lib/systemd/system/*.service(N)
   )
   units=("${files:t}")
-  print -rl -- "${units[@]}"
+  _describe 'unit' units
 }
 
 local -a commands
@@ -39,35 +38,38 @@ commands=(
   'show:Show machine-readable properties'
 )
 
-_arguments -C \
-  '--now[Enable/disable and immediately start/stop]' \
-  '(-q --quiet)'{-q,--quiet}'[Suppress successful output]' \
-  '--no-legend[Omit headers]' \
-  '--no-pager[Disable the pager]' \
-  '--system[Use system scope]' \
-  '--user[Use user unit directory where supported]' \
-  '--plain[Accepted for systemctl compatibility]' \
-  '(-h --help)'{-h,--help}'[Show help]' \
-  '--version[Show version]' \
-  '1:command:->command' \
-  '*:unit:->unit'
+local -a opts
+opts=(
+  '--now[Enable/disable and immediately start/stop]'
+  '(-q --quiet)'{-q,--quiet}'[Suppress successful output]'
+  '--no-legend[Omit headers]'
+  '--no-pager[Disable the pager]'
+  '--system[Use system scope]'
+  '--user[Use user unit directory where supported]'
+  '--plain[Accepted for systemctl compatibility]'
+  '(-h --help)'{-h,--help}'[Show help]'
+  '--version[Show version]'
+)
 
-case $state in
-  command)
-    _describe 'command' commands
+if (( CURRENT == 2 )); then
+  _describe 'command' commands
+  _arguments $opts
+  return
+fi
+
+local command word
+for word in "${words[2,-1]}"; do
+  case $word in
+    --*) continue ;;
+    *) command=$word; break ;;
+  esac
+done
+
+case $command in
+  start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
+    _systemd_macos_units
     ;;
-  unit)
-    local command word
-    for word in "${words[2,-1]}"; do
-      case $word in
-        --*) continue ;;
-        *) command=$word; break ;;
-      esac
-    done
-    case $command in
-      start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-        compadd -- $(_systemd_macos_units)
-        ;;
-    esac
+  *)
+    _arguments $opts '*:unit:->unit'
     ;;
 esac
