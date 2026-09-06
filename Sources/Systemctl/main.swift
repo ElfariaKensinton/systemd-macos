@@ -132,11 +132,17 @@ do {
 
     if now && options.action == .enable {
         let enabled = try request(IPCRequest(action: .enable, units: options.units))
-        guard enabled.exitCode == 0 else { throw ManagerError.ipc(enabled.error ?? "enable failed") }
+        guard enabled.exitCode == 0 else {
+            if !options.quiet, let error = enabled.error { fputs("\(error)\n", stderr) }
+            exit(enabled.exitCode)
+        }
         response = try request(IPCRequest(action: .start, units: options.units))
     } else if now && options.action == .disable {
         let stopped = try request(IPCRequest(action: .stop, units: options.units))
-        guard stopped.exitCode == 0 else { throw ManagerError.ipc(stopped.error ?? "stop failed") }
+        guard stopped.exitCode == 0 else {
+            if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
+            exit(stopped.exitCode)
+        }
         response = try request(IPCRequest(action: .disable, units: options.units))
     } else {
         response = try request(IPCRequest(action: options.action, units: options.units))
@@ -166,7 +172,7 @@ do {
     }
 
     if response.exitCode != 0 {
-        if !options.quiet, let error = response.error { fputs("systemctl: \(error)\n", stderr) }
+        if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
     }
     exit(0)
