@@ -124,7 +124,8 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
 func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
     for status in statuses {
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(status.description ?? \"\")")
+        let description = status.description ?? ""
+        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(description)")
     }
 }
 
@@ -133,18 +134,16 @@ func outputStatus(_ output: String, noPager: Bool) {
 
     let environment = ProcessInfo.processInfo.environment
     let pager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "less -R"
-    let usePager = !noPager &&
-        isatty(STDOUT_FILENO) == 1 &&
-        pager != "cat" &&
-        !pager.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let trimmedPager = pager.trimmingCharacters(in: .whitespacesAndNewlines)
+    let usePager = !noPager && isatty(STDOUT_FILENO) == 1 && trimmedPager != "cat" && !trimmedPager.isEmpty
 
     guard usePager else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let command = pager.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-    guard let executable = command.first else {
+    let command = trimmedPager.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    guard !command.isEmpty else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
@@ -166,7 +165,6 @@ func outputStatus(_ output: String, noPager: Bool) {
         input.fileHandleForWriting.closeFile()
         process.waitUntilExit()
     } catch {
-        fputs("systemctl: failed to run pager \(executable): \(error.localizedDescription)\n", stderr)
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
     }
 }
