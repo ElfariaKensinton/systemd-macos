@@ -61,6 +61,24 @@ _systemctl() {
     fi
 }
 
+_sudo_systemd_macos() {
+    local saved_cword i
+    COMPREPLY=()
+
+    for ((i=1; i<COMP_CWORD; i++)); do
+        if [[ ${COMP_WORDS[i]} == systemctl ]]; then
+            saved_cword=$COMP_CWORD
+            COMP_WORDS=("${COMP_WORDS[@]:i}")
+            COMP_CWORD=$((COMP_CWORD - i))
+            _systemctl
+            COMP_CWORD=$saved_cword
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 _journalctl() {
     local cur prev
     cur=${COMP_WORDS[COMP_CWORD]}
@@ -88,4 +106,5 @@ _journalctl() {
 }
 
 complete -F _systemctl systemctl
+complete -o default -F _sudo_systemd_macos sudo
 complete -F _journalctl journalctl
