@@ -14,7 +14,7 @@ struct CLIOptions {
 func usage() -> Never {
     print("systemctl [OPTIONS...] COMMAND [UNIT...]")
     print("")
-    print("Control the systemd-macos service manager.")
+    print("Control the service manager.")
     print("")
     print("Commands:")
     print("  start UNIT...           Start units")
@@ -22,8 +22,8 @@ func usage() -> Never {
     print("  restart UNIT...         Restart units")
     print("  reload UNIT...          Reload units")
     print("  status UNIT...          Show runtime status")
-    print("  enable UNIT...          Enable units for boot")
-    print("  disable UNIT...         Disable units for boot")
+    print("  enable UNIT...          Enable units")
+    print("  disable UNIT...         Disable units")
     print("  is-active UNIT...       Check whether units are active")
     print("  is-enabled UNIT...      Check whether units are enabled")
     print("  daemon-reload           Reload unit files")
@@ -65,7 +65,7 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
             now = true
             tokens.remove(at: index)
         case "--version":
-            print("systemd-macos 0.1.0")
+            print("systemctl 0.1.0")
             exit(0)
         case "--help", "-h": usage()
         default:
@@ -148,8 +148,6 @@ do {
         response = try request(IPCRequest(action: options.action, units: options.units))
     }
 
-    // systemctl status/is-active/is-enabled intentionally use non-zero exit codes
-    // as state indicators. Their human-readable output must still be printed.
     switch options.action {
     case .status:
         if !options.quiet, !response.output.isEmpty { print(response.output) }
@@ -166,7 +164,7 @@ do {
     case .cat, .show:
         if !options.quiet, !response.output.isEmpty { print(response.output) }
     case .daemonReload:
-        if !options.quiet { print("Reloaded systemd-macos unit files.") }
+        if !options.quiet { print("Reloaded unit files.") }
     default:
         break
     }
