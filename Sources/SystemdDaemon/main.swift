@@ -160,7 +160,6 @@ final class UnixServer {
 
         for status in statuses {
             let marker = status.activeState == "active" ? "●" : "○"
-            let description = status.description ?? ""
             let stateText: String
             switch status.subState {
             case "active": stateText = "active (running)"
@@ -170,7 +169,11 @@ final class UnixServer {
             }
 
             var lines: [String] = []
-            lines.append("\(marker) \(status.name) - \(description)")
+            if let description = status.description, !description.isEmpty {
+                lines.append("\(marker) \(status.name) - \(description)")
+            } else {
+                lines.append("\(marker) \(status.name)")
+            }
             let enabledText = status.enabled ? "enabled" : "disabled"
             let path = status.path ?? "/etc/systemd/system/\(status.name)"
             lines.append("     Loaded: loaded (\(path); \(enabledText))")
