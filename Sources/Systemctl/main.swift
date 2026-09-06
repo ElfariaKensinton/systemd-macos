@@ -152,7 +152,11 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRSX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    // Keep normal line wrapping. Do not use less -S: disabling wrapping creates a
+    // horizontally scrollable viewport, which causes the whole status display to
+    // be repainted while moving left/right. systemctl status should behave as a
+    // stable vertical pager instead.
+    let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = command.first else {
         print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
