@@ -201,6 +201,7 @@ public final class ServiceManager: @unchecked Sendable {
     }
 
     private func launch(_ unit: UnitFile) throws {
+        try validatePermissionConfiguration(unit)
         for command in unit.service.execStartPre {
             _ = try run(command, unit: unit)
         }
@@ -209,7 +210,11 @@ public final class ServiceManager: @unchecked Sendable {
         }
 
         let process = Process()
-        let invocation = commandInvocation(command: command, user: unit.service.user, limitNOFILE: unit.service.limitNOFILE)
+        let invocation = commandInvocation(command: command, user: unit.service.user,
+                                           group: unit.service.group,
+                                           supplementaryGroups: unit.service.supplementaryGroups,
+                                           umask: unit.service.umask,
+                                           limitNOFILE: unit.service.limitNOFILE)
         process.launchPath = invocation.executable
         process.arguments = invocation.arguments
         process.environment = environment(for: unit)
@@ -290,7 +295,11 @@ public final class ServiceManager: @unchecked Sendable {
 
     private func run(_ command: String, unit: UnitFile) throws -> Int32 {
         let process = Process()
-        let invocation = commandInvocation(command: command, user: unit.service.user, limitNOFILE: unit.service.limitNOFILE)
+        let invocation = commandInvocation(command: command, user: unit.service.user,
+                                           group: unit.service.group,
+                                           supplementaryGroups: unit.service.supplementaryGroups,
+                                           umask: unit.service.umask,
+                                           limitNOFILE: unit.service.limitNOFILE)
         process.launchPath = invocation.executable
         process.arguments = invocation.arguments
         process.environment = environment(for: unit)
@@ -301,18 +310,45 @@ public final class ServiceManager: @unchecked Sendable {
         return process.terminationStatus
     }
 
-    private func commandInvocation(command: String, user: String?, limitNOFILE: UInt64?) -> (executable: String, arguments: [String]) {
-        let shellScript: String
+    private func commandInvocation(command: String, user: String?, group: String?,
+                                   supplementaryGroups: [String], umask: UInt16?,
+                                   limitNOFILE: UInt64?) -> (executable: String, arguments: [String]) {
+        var setup: [String] = []
+        if let umask { setup.append("umask \(String(umask, radix: 8))") }
         if let limitNOFILE {
-            shellScript = "ulimit -n \(limitNOFILE) || exit $?\nexec /bin/sh -c \(shellQuote(command))"
-        } else {
-            shellScript = "exec /bin/sh -c \(shellQuote(command))"
+            setup.append("ulimit -n \(limitNOFILE) || exit $?")
         }
+        let shellScript = (setup + ["exec /bin/sh -c \(shellQuote(command))"]).joined(separator: "\n")
 
-        guard let user, !user.isEmpty, user != "root" else {
+        let hasIdentityChange = (user?.isEmpty == false && user != "root")
+            || group?.isEmpty == false
+            || !supplementaryGroups.isEmpty
+
+        guard hasIdentityChange else {
             return ("/bin/sh", ["-c", shellScript])
         }
-        return ("/usr/bin/sudo", ["-n", "-u", user, "/bin/sh", "-c", shellScript])
+
+        var arguments = ["-n"]
+        if let user, !user.isEmpty { arguments += ["-u", user] }
+        if let group, !group.isEmpty { arguments += ["-g", group] }
+        if !supplementaryGroups.isEmpty { arguments += ["-G", supplementaryGroups.joined(separator: ",")] }
+        arguments += ["/bin/sh", "-c", shellScript]
+        return ("/usr/bin/sudo", arguments)
+    }
+
+    private func validatePermissionConfiguration(_ unit: UnitFile) throws {
+        let currentUID = geteuid()
+        let requestedUser = unit.service.user?.lowercased()
+        let isRootTarget = requestedUser == nil || requestedUser == "root"
+        let capabilities = unit.service.capabilityBoundingSet + unit.service.ambientCapabilities
+
+        if !capabilities.isEmpty && !isRootTarget {
+            throw ManagerError.permission("Linux capabilities \(capabilities.joined(separator: ", ")) cannot be granted to non-root services on macOS; use User=root for equivalent unrestricted privilege.")
+        }
+
+        if unit.service.noNewPrivileges && (isRootTarget || currentUID != 0) {
+            throw ManagerError.permission("NoNewPrivileges= has no exact macOS equivalent and cannot be enforced by this manager.")
+        }
     }
 
     private func shellQuote(_ value: String) -> String {
