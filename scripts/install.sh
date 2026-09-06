@@ -37,6 +37,7 @@ sudo install -d "$BIN_DIR" "$SYSTEMD_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
 sudo install -m 755 "$TMP_DIR/bin/systemd" "$BIN_DIR/systemd"
 sudo install -m 755 "$TMP_DIR/bin/systemctl" "$BIN_DIR/systemctl"
 sudo install -m 755 "$TMP_DIR/bin/journalctl" "$BIN_DIR/journalctl"
+sudo install -m 755 "$TMP_DIR/bin/systemd-exec-helper" "$BIN_DIR/systemd-exec-helper"
 
 # Install shell completions using the standard bash-completion and zsh
 # site-functions locations under the selected prefix.
@@ -80,5 +81,6 @@ echo "Unit files: $SYSTEMD_DIR"
 echo "Control socket: /var/run/systemd-macos.sock"
 echo "CLI: $BIN_DIR/systemctl"
 echo "Journal: $BIN_DIR/journalctl"
+echo "Privilege helper: $BIN_DIR/systemd-exec-helper"
 echo "Bash completions: $BASH_COMPLETION_DIR"
 echo "Zsh completions: $ZSH_COMPLETION_DIR"
