@@ -2,6 +2,17 @@
 
 _systemd_macos_units() {
   local -a units files
+
+  if (( $+commands[systemctl] )); then
+    units=( ${(f)"$(command systemctl list-unit-files --no-legend 2>/dev/null)"} )
+    units=( ${units%%[[:space:]]*} )
+    units=( ${units:#} )
+    if (( ${#units} )); then
+      print -rl -- "${units[@]}"
+      return 0
+    fi
+  fi
+
   files=(
     /etc/systemd/system/*.service(N)
     /usr/local/lib/systemd/system/*.service(N)
