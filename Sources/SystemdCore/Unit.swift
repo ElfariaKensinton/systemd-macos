@@ -119,13 +119,13 @@ public enum ManagerError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidUnitName(let value): return "Invalid unit name: \(value)"
-        case .unitNotFound(let value): return "Unit \"\(value)\" not found."
-        case .unitAlreadyActive(let value): return "Unit \"\(value)\" is already active."
-        case .unitInactive(let value): return "Unit \"\(value)\" is not active."
+        case .unitNotFound(let value): return "Unit \(value) not found."
+        case .unitAlreadyActive(let value): return "Unit \(value) is already active."
+        case .unitInactive(let value): return "Unit \(value) is not active."
         case .invalidConfiguration(let value): return "Invalid unit configuration: \(value)"
         case .dependencyCycle(let values): return "Dependency cycle: \(values.joined(separator: " -> "))"
-        case .commandFailed(let command, let status): return "Command \"\(command)\" failed with status \(status)."
-        case .ipc(let value): return "IPC error: \(value)"
+        case .commandFailed(let command, let status): return "Command \"\(command)\" failed with exit status \(status)."
+        case .ipc(let value): return value
         case .permission(let value): return "Permission denied: \(value)"
         }
     }
