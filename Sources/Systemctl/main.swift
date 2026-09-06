@@ -152,12 +152,10 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-FRX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-RX"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
-        // Always keep line wrapping enabled. Strip -S from the user's pager too,
-        // so status never becomes a horizontally scrollable viewport.
         command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" }
-        if command.count == 1 { command.append("-FRX") }
+        if command.count == 1 { command.append("-RX") }
     }
 
     guard let executable = command.first else {
@@ -235,7 +233,6 @@ do {
             exit(enabled.exitCode)
         }
         if !options.quiet, !enabled.output.isEmpty { print(enabled.output) }
-
         let started = try request(IPCRequest(action: .start, units: options.units))
         if started.exitCode != 0 {
             if !options.quiet, let error = started.error { fputs("\(error)\n", stderr) }
@@ -250,7 +247,6 @@ do {
             if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
             exit(stopped.exitCode)
         }
-
         let disabled = try request(IPCRequest(action: .disable, units: options.units))
         guard disabled.exitCode == 0 else {
             if !options.quiet, let error = disabled.error { fputs("\(error)\n", stderr) }
