@@ -137,11 +137,8 @@ jobs:
           set -euo pipefail
           cp dist/systemd-macos-arm64.tar.gz dist/systemd-macos-latest-arm64.tar.gz
           cp dist/systemd-macos-x86_64.tar.gz dist/systemd-macos-latest-x86_64.tar.gz
-          cp dist/systemd-macos-arm64.tar.gz.sha256 dist/systemd-macos-latest-arm64.tar.gz.sha256
-          cp dist/systemd-macos-x86_64.tar.gz.sha256 dist/systemd-macos-latest-x86_64.tar.gz.sha256
-          sed -i.bak 's#systemd-macos-arm64.tar.gz#systemd-macos-latest-arm64.tar.gz#' dist/systemd-macos-latest-arm64.tar.gz.sha256
-          sed -i.bak 's#systemd-macos-x86_64.tar.gz#systemd-macos-latest-x86_64.tar.gz#' dist/systemd-macos-latest-x86_64.tar.gz.sha256
-          rm -f dist/*.bak
+          awk '{print $1 "  systemd-macos-latest-arm64.tar.gz"}' dist/systemd-macos-arm64.tar.gz.sha256 > dist/systemd-macos-latest-arm64.tar.gz.sha256
+          awk '{print $1 "  systemd-macos-latest-x86_64.tar.gz"}' dist/systemd-macos-x86_64.tar.gz.sha256 > dist/systemd-macos-latest-x86_64.tar.gz.sha256
           gh release upload "$TAG" \
             dist/systemd-macos-latest-arm64.tar.gz \
             dist/systemd-macos-latest-arm64.tar.gz.sha256 \
