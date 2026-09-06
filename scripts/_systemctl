@@ -47,7 +47,7 @@ case $state in
     ;;
   unit)
     local command word
-    for word in "${words[@]:2}"; do
+    for word in "${words[2,-1]}"; do
       case $word in
         --*) continue ;;
         *) command=$word; break ;;
