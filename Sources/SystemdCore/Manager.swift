@@ -220,12 +220,37 @@ public final class ServiceManager: @unchecked Sendable {
         runtime[unit.name]?.process = process
         lock.unlock()
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            lock.lock()
+            runtime[unit.name] = Runtime(state: "dead", result: "exit-code", mainPID: 0)
+            lock.unlock()
+            throw error
+        }
+
         lock.lock()
         runtime[unit.name]?.startedAt = Date()
         runtime[unit.name]?.mainPID = process.processIdentifier
         runtime[unit.name]?.state = "active"
         lock.unlock()
+
+        // ExecStart is asynchronous, but a command that exits immediately with
+        // a non-zero status is a failed start, not a successful job. Give the
+        // shell a short opportunity to report immediate exec/launch failures.
+        let deadline = Date().addingTimeInterval(0.1)
+        while process.isRunning && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        if !process.isRunning {
+            process.waitUntilExit()
+            let status = process.terminationStatus
+            handleExit(unit: unit, status: status, allowRestart: false)
+            if status != 0 {
+                throw ManagerError.commandFailed(command, status)
+            }
+            return
+        }
 
         DispatchQueue.global(qos: .utility).async { [weak self, weak process] in
             guard let self, let process else { return }
@@ -236,14 +261,14 @@ public final class ServiceManager: @unchecked Sendable {
         for command in unit.service.execStartPost { _ = try? run(command, environment: environment(for: unit), workingDirectory: unit.service.workingDirectory) }
     }
 
-    private func handleExit(unit: UnitFile, status: Int32) {
+    private func handleExit(unit: UnitFile, status: Int32, allowRestart: Bool = true) {
         lock.lock()
         let requested = runtime[unit.name]?.stopRequested ?? false
         let shouldRestart: Bool
         switch unit.service.restart {
-        case .always: shouldRestart = !requested
-        case .onSuccess: shouldRestart = status == 0 && !requested
-        case .onFailure, .onAbnormal, .onWatchdog, .onAbort: shouldRestart = status != 0 && !requested
+        case .always: shouldRestart = allowRestart && !requested
+        case .onSuccess: shouldRestart = allowRestart && status == 0 && !requested
+        case .onFailure, .onAbnormal, .onWatchdog, .onAbort: shouldRestart = allowRestart && status != 0 && !requested
         case .no: shouldRestart = false
         }
         runtime[unit.name]?.process = nil
