@@ -71,7 +71,7 @@ The recommended installation method downloads a verified binary for the current 
 curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash
 ```
 
-The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`), verifies the SHA-256 checksum published with the release, and uses the stable `releases/latest/download` asset aliases.
+The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`), verifies the SHA-256 checksum published with the release, and uses the stable `releases/latest/download` asset aliases. It invokes `sudo` only for the system-level installation and LaunchDaemon registration steps.
 
 ## Build and release
 
@@ -86,20 +86,7 @@ Name:  systemd-macos 0.1.0 — Build 42 (20260906)
 
 Published releases contain versioned archives, SHA-256 checksums, and stable `latest` aliases used by the one-line installer.
 
-## Install from a source checkout
-
-For development or when working from source:
-
-```sh
-sudo sh scripts/install.sh
-```
-
-After installation:
-
-```sh
-sudo systemctl daemon-reload
-sudo systemctl list-unit-files
-```
+For development from a checkout, build the binaries directly with Swift and install them manually; `scripts/install.sh` is intentionally the release installer rather than a source-build installer.
 
 ## Unit example
 
