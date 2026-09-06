@@ -124,30 +124,35 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
 func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
     for status in statuses {
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(status.description ?? "")")
+        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(status.description ?? \"\")")
     }
 }
 
 func outputStatus(_ output: String, noPager: Bool) {
     guard !output.isEmpty else { return }
-    guard !noPager,
-          isatty(STDOUT_FILENO) == 1,
-          ProcessInfo.processInfo.environment["SYSTEMD_PAGER"] != "cat"
-    else {
-        print(output)
+
+    let environment = ProcessInfo.processInfo.environment
+    let pager = environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "less -R"
+    let usePager = !noPager &&
+        isatty(STDOUT_FILENO) == 1 &&
+        pager != "cat" &&
+        !pager.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+    guard usePager else {
+        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    let pager = ProcessInfo.processInfo.environment["SYSTEMD_PAGER"] ?? ProcessInfo.processInfo.environment["PAGER"] ?? "less -R"
-    let command = pager.split(separator: " ").map(String.init)
+    let command = pager.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = command.first else {
-        print(output)
+        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = command
+
     let input = Pipe()
     process.standardInput = input
     process.standardOutput = FileHandle.standardOutput
@@ -155,11 +160,14 @@ func outputStatus(_ output: String, noPager: Bool) {
 
     do {
         try process.run()
-        input.fileHandleForWriting.write(output.data(using: .utf8) ?? Data())
+        if let data = output.data(using: .utf8) {
+            input.fileHandleForWriting.write(data)
+        }
         input.fileHandleForWriting.closeFile()
         process.waitUntilExit()
     } catch {
-        print(output)
+        fputs("systemctl: failed to run pager \(executable): \(error.localizedDescription)\n", stderr)
+        print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
     }
 }
 
