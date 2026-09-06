@@ -100,6 +100,7 @@ public struct UnitParser: Sendable {
         case "User": service.user = value
         case "Group": service.group = value
         case "WorkingDirectory": service.workingDirectory = value
+        case "LimitNOFILE": service.limitNOFILE = try parseLimitNOFILE(value)
         case "Environment":
             let assignment = try parseAssignment(value)
             service.environment[assignment.0] = assignment.1
@@ -110,6 +111,14 @@ public struct UnitParser: Sendable {
         case "StandardError": service.standardError = value
         default: break
         }
+    }
+
+    private func parseLimitNOFILE(_ value: String) throws -> UInt64 {
+        let value = value.trimmingCharacters(in: .whitespaces)
+        guard value != "infinity", let limit = UInt64(value) else {
+            throw ManagerError.invalidConfiguration("unsupported LimitNOFILE=\(value)")
+        }
+        return limit
     }
 
     private func parseAssignment(_ value: String) throws -> (String, String) {
