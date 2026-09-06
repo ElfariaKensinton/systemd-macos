@@ -140,7 +140,9 @@ func outputStatus(_ output: String, noPager: Bool) {
         return
     }
 
-    let command = pagerSpec.isEmpty ? ["/usr/bin/more"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    // Match systemd's interactive status feel: keep the rendered status on
+    // screen when the pager exits instead of clearing the terminal.
+    let command = pagerSpec.isEmpty ? ["/usr/bin/less", "-X", "-R"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = command.first else {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
