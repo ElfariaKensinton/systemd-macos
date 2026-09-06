@@ -17,8 +17,8 @@ _systemd_macos_units() {
     done
   fi
 
-  (( ${#units} )) || return 0
-  compadd -Q -- ${units:#}
+  (( ${#units} )) || return 1
+  _describe 'unit' units
 }
 
 local -a commands
@@ -52,33 +52,24 @@ opts=(
   '--version[Show version]'
 )
 
-local command word
-command=
-for word in "${words[2,-1]}"; do
-  case $word in
-    --*) ;;
-    start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
-      command=$word
-      break
-      ;;
-    daemon-reload|list-units|list-unit-files)
-      command=$word
-      break
-      ;;
-  esac
-done
+local state
+_arguments -C $opts \
+  '1:command:->command' \
+  '*:unit:->unit'
 
-if [[ -n $command && $command != daemon-reload && $command != list-units && $command != list-unit-files ]]; then
-  _systemd_macos_units
-  return 0
-fi
-
-_arguments -C $opts '1:command:->command' '*:unit:->unit'
 case $state in
   command)
     _describe 'command' commands
+    return 0
     ;;
   unit)
-    _systemd_macos_units
+    case "${words[2]}" in
+      start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
+        _systemd_macos_units
+        return 0
+        ;;
+    esac
     ;;
 esac
+
+return 0
