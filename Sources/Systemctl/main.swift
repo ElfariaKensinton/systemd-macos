@@ -124,7 +124,8 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
 func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
     if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
     for status in statuses {
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(status.description ?? \"\")")
+        let description = status.description ?? ""
+        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(description)")
     }
 }
 
@@ -134,7 +135,7 @@ func outputStatus(_ output: String, noPager: Bool) {
     let environment = ProcessInfo.processInfo.environment
     let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-    if noPager || !pagerSpec.isEmpty && pagerSpec == "cat" || !isatty(STDOUT_FILENO) {
+    if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 {
         print(output, terminator: output.hasSuffix("\n") ? "" : "\n")
         return
     }
@@ -160,8 +161,7 @@ func outputStatus(_ output: String, noPager: Bool) {
             process.arguments = command + [tempURL.path]
         }
 
-        let tty = FileHandle.standardInput
-        process.standardInput = tty
+        process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
         try process.run()
