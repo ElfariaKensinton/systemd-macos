@@ -18,7 +18,7 @@ _systemd_macos_units() {
   fi
 
   (( ${#units} )) || return 1
-  _describe 'unit' units
+  compadd -- $units
 }
 
 _systemctl() {
@@ -52,13 +52,23 @@ _systemctl() {
     '--version[Show version]'
   )
 
-  _arguments -s -C $opts \
-    '1:command:->command' \
-    '*::unit:_systemd_macos_units'
+  if (( ${#words} == 2 )); then
+    _describe 'command' systemctl_commands
+    _describe 'option' opts
+    return 0
+  fi
 
-  case $state in
-    command)
-      _describe 'command' systemctl_commands
+  case "${words[2]}" in
+    start|stop|restart|reload|status|enable|disable|is-active|is-enabled|cat|show)
+      _arguments -s -C $opts '*:unit:_systemd_macos_units'
+      ;;
+    *)
+      _arguments -s $opts '*:argument:_message "argument"'
       ;;
   esac
 }
+
+# Makes direct `source scripts/_systemctl` usable as well as normal compinit autoloading.
+if (( $+functions[compdef] )); then
+  compdef systemctl=_systemctl
+fi
