@@ -8,6 +8,8 @@ SYSTEMD_DIR=/etc/systemd/system
 STATE_DIR=/var/lib/systemd-macos
 PLIST=/Library/LaunchDaemons/com.elfaria.systemd-macos.plist
 BASE_URL="https://github.com/$REPO/releases/latest/download"
+BASH_COMPLETION_DIR="${BASH_COMPLETION_DIR:-$PREFIX/share/bash-completion/completions}"
+ZSH_COMPLETION_DIR="${ZSH_COMPLETION_DIR:-$PREFIX/share/zsh/site-functions}"
 
 case "$(uname -m)" in
   arm64) ARCH=arm64 ;;
@@ -34,6 +36,15 @@ tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
 sudo install -d "$BIN_DIR" "$SYSTEMD_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
 sudo install -m 755 "$TMP_DIR/bin/systemd" "$BIN_DIR/systemd"
 sudo install -m 755 "$TMP_DIR/bin/systemctl" "$BIN_DIR/systemctl"
+sudo install -m 755 "$TMP_DIR/bin/journalctl" "$BIN_DIR/journalctl"
+
+# Install shell completions using the standard bash-completion and zsh
+# site-functions locations under the selected prefix.
+sudo install -d "$BASH_COMPLETION_DIR" "$ZSH_COMPLETION_DIR"
+sudo install -m 644 "$TMP_DIR/scripts/systemd-macos.bash" "$BASH_COMPLETION_DIR/systemctl"
+sudo install -m 644 "$TMP_DIR/scripts/systemd-macos.bash" "$BASH_COMPLETION_DIR/journalctl"
+sudo install -m 644 "$TMP_DIR/scripts/_systemctl" "$ZSH_COMPLETION_DIR/_systemctl"
+sudo install -m 644 "$TMP_DIR/scripts/_journalctl" "$ZSH_COMPLETION_DIR/_journalctl"
 
 sudo tee "$TMP_DIR/com.elfaria.systemd-macos.plist" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,3 +79,6 @@ echo "Installed systemd-macos ($ARCH) from the latest GitHub release."
 echo "Unit files: $SYSTEMD_DIR"
 echo "Control socket: /var/run/systemd-macos.sock"
 echo "CLI: $BIN_DIR/systemctl"
+echo "Journal: $BIN_DIR/journalctl"
+echo "Bash completions: $BASH_COMPLETION_DIR"
+echo "Zsh completions: $ZSH_COMPLETION_DIR"
