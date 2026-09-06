@@ -48,8 +48,6 @@ final class UnixServer {
     private func handle(client: Int32) {
         defer { close(client) }
 
-        // IPC is newline-framed. Do not wait for EOF: a client may keep the
-        // connection open while waiting for the response.
         let handle = FileHandle(fileDescriptor: client, closeOnDealloc: false)
         var input = Data()
         while input.firstIndex(of: 0x0A) == nil {
@@ -91,9 +89,24 @@ final class UnixServer {
         case .reload:
             return perform(request.units, actionName: "reload") { try manager.restart($0) }
         case .enable:
-            return perform(request.units, actionName: "enable") { try manager.enable($0) }
+            return performWithOutput(request.units, actionName: "enable") { unit in
+                let before = try manager.status(unit)
+                try manager.enable(unit)
+                let after = try manager.status(unit)
+                guard !before.enabled && after.enabled else { return [] }
+                let marker = SystemdPaths.enablementDirectory.appendingPathComponent(after.name)
+                let target = after.path ?? "/etc/systemd/system/\(after.name)"
+                return ["Created symlink: \(marker.path) → \(target)"]
+            }
         case .disable:
-            return perform(request.units, actionName: "disable") { try manager.disable($0) }
+            return performWithOutput(request.units, actionName: "disable") { unit in
+                let before = try manager.status(unit)
+                try manager.disable(unit)
+                let after = try manager.status(unit)
+                guard before.enabled && !after.enabled else { return [] }
+                let marker = SystemdPaths.enablementDirectory.appendingPathComponent(after.name)
+                return ["Removed \(marker.path)"]
+            }
         case .status:
             let statuses = try request.units.map(manager.status)
             let output = render(statuses)
@@ -113,7 +126,7 @@ final class UnixServer {
             let values = try request.units.map { try manager.show($0) }
             let output = values.map { dictionary in
                 dictionary.keys.sorted().map { key in
-                    "\(key)=\(dictionary[key] ?? "")"
+                    "\(key)=\(dictionary[key] ?? \"\")"
                 }.joined(separator: "\n")
             }.joined(separator: "\n")
             return IPCResponse(exitCode: 0, output: output)
@@ -148,6 +161,35 @@ final class UnixServer {
         return IPCResponse(exitCode: 0)
     }
 
+    private func performWithOutput(_ units: [String], actionName: String, _ action: (String) throws -> [String]) -> IPCResponse {
+        guard !units.isEmpty else {
+            return IPCResponse(exitCode: 1, error: "No unit name specified.")
+        }
+
+        var operations: [String] = []
+        for unit in units {
+            do {
+                operations += try action(unit)
+            } catch ManagerError.commandFailed {
+                return IPCResponse(
+                    exitCode: 1,
+                    error: "Job for \(unit) failed because the control process exited with error code.\nSee \"systemctl status \(unit)\" and \"journalctl -xeu \(unit)\" for details."
+                )
+            } catch ManagerError.unitNotFound {
+                return IPCResponse(
+                    exitCode: 5,
+                    error: "Failed to \(actionName) \(unit): Unit \(unit) not found."
+                )
+            } catch {
+                return IPCResponse(
+                    exitCode: 1,
+                    error: "Failed to \(actionName) \(unit): \(error.localizedDescription)"
+                )
+            }
+        }
+        return IPCResponse(exitCode: 0, output: operations.joined(separator: "\n"))
+    }
+
     private func render(_ statuses: [UnitStatus]) -> String {
         var blocks: [String] = []
         let stampFormatter = DateFormatter()
@@ -178,12 +220,6 @@ final class UnixServer {
             let path = status.path ?? "/etc/systemd/system/\(status.name)"
             lines.append("     Loaded: loaded (\(path); \(enabledText))")
 
-            // Real systemd only appends a (result) qualifier for terminal
-            // states where the result is meaningful (e.g. "failed" units
-            // show "(Result: exit-code)"). Printing "(success)" next to
-            // "inactive (dead)" for a unit that was simply never started is
-            // misleading — a plain "inactive (dead)" line, or one that
-            // reports the actual failure, matches what systemd shows.
             var activeLine = "     Active: \(stateText)"
             if status.activeState == "active", let since = status.activeSince {
                 activeLine += " since \(sinceFormatter.string(from: since)); \(relativeDuration(from: since))"
