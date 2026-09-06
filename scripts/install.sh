@@ -1,20 +1,41 @@
 #!/bin/sh
 set -eu
 
-PREFIX=${PREFIX:-/usr/local}
+REPO="ElfariaKensinton/systemd-macos"
+PREFIX="${PREFIX:-/usr/local}"
 BIN_DIR="$PREFIX/bin"
 SYSTEMD_DIR=/etc/systemd/system
 STATE_DIR=/var/lib/systemd-macos
 PLIST=/Library/LaunchDaemons/com.elfaria.systemd-macos.plist
+BASE_URL="https://github.com/$REPO/releases/latest/download"
 
-printf '%s\n' 'Building systemd-macos...'
-swift build -c release
+case "$(uname -m)" in
+  arm64) ARCH=arm64 ;;
+  x86_64) ARCH=x86_64 ;;
+  *)
+    echo "Unsupported macOS architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
 
-install -d "$BIN_DIR" "$SYSTEMD_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
-install -m 755 .build/release/systemd "$BIN_DIR/systemd"
-install -m 755 .build/release/systemctl "$BIN_DIR/systemctl"
+ASSET="systemd-macos-latest-${ARCH}.tar.gz"
+CHECKSUM="${ASSET}.sha256"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-cat > "$PLIST" <<EOF
+printf '%s\n' "Downloading systemd-macos latest release ($ARCH)..."
+curl -fsSL "$BASE_URL/$ASSET" -o "$TMP_DIR/$ASSET"
+curl -fsSL "$BASE_URL/$CHECKSUM" -o "$TMP_DIR/$CHECKSUM"
+
+( cd "$TMP_DIR" && shasum -a 256 -c "$CHECKSUM" )
+
+tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
+
+sudo install -d "$BIN_DIR" "$SYSTEMD_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
+sudo install -m 755 "$TMP_DIR/bin/systemd" "$BIN_DIR/systemd"
+sudo install -m 755 "$TMP_DIR/bin/systemctl" "$BIN_DIR/systemctl"
+
+sudo tee "$TMP_DIR/com.elfaria.systemd-macos.plist" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -39,10 +60,11 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 
-launchctl bootout system "$PLIST" 2>/dev/null || true
-launchctl bootstrap system "$PLIST"
+sudo install -m 644 "$TMP_DIR/com.elfaria.systemd-macos.plist" "$PLIST"
+sudo launchctl bootout system "$PLIST" 2>/dev/null || true
+sudo launchctl bootstrap system "$PLIST"
 
-echo "Installed systemd-macos."
+echo "Installed systemd-macos ($ARCH) from the latest GitHub release."
 echo "Unit files: $SYSTEMD_DIR"
 echo "Control socket: /var/run/systemd-macos.sock"
 echo "CLI: $BIN_DIR/systemctl"
