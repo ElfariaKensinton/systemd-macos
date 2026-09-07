@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>systemd-macos</title>
+  <meta name="description" content="systemd-like service manager for macOS">
+  <style>
+    :root { color-scheme: dark; --bg: #0b0d10; --panel: #12161b; --text: #eef2f6; --muted: #9aa6b2; --accent: #7dd3fc; --border: #27313b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 900px; margin: 0 auto; padding: 80px 24px; }
+    h1 { font-size: clamp(42px, 8vw, 76px); line-height: 1; margin: 0 0 18px; letter-spacing: -0.04em; }
+    p { color: var(--muted); max-width: 680px; }
+    .tag { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .command { margin: 36px 0; padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .command code { color: var(--text); white-space: nowrap; }
+    a { color: var(--accent); }
+    .links { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 28px; }
+    small { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="tag">macOS service manager</div>
+    <h1>systemd-macos</h1>
+    <p>A systemd-like service manager for macOS, with <code>systemctl</code>, <code>journalctl</code>, unit files, drop-ins, runtime units, and LaunchDaemon integration.</p>
+
+    <div class="command"><code>curl -fsSL https://elfariakensinton.github.io/systemd-macos/install.sh | bash</code></div>
+
+    <p>The installer downloads the latest release for your Mac, verifies its SHA-256 checksum, installs the binaries, unit directories, shell completions, and LaunchDaemon, then starts the daemon.</p>
+
+    <div class="links">
+      <a href="https://github.com/ElfariaKensinton/systemd-macos">GitHub</a>
+      <a href="https://github.com/ElfariaKensinton/systemd-macos/releases">Releases</a>
+      <a href="install.sh">Install script</a>
+    </div>
+    <p><small>Requires macOS and sudo access.</small></p>
+  </main>
+</body>
+</html>
