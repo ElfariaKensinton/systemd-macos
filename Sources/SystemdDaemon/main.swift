@@ -32,6 +32,14 @@ final class UnixServer {
             }
         }
         guard bindResult == 0 else { throw ManagerError.ipc("Failed to bind IPC socket: \(String(cString: strerror(errno)))") }
+
+        // Pin ownership to root:wheel explicitly rather than trusting
+        // whatever group the daemon's process happens to be running under
+        // at bind time — that's an OS/launchd implementation detail, not a
+        // guarantee. wheel is macOS's traditional "trusted admin" group.
+        if let wheelGroup = getgrnam("wheel") {
+            chown(SystemdPaths.socket.path, 0, wheelGroup.pointee.gr_gid)
+        }
         chmod(SystemdPaths.socket.path, 0o660)
         guard listen(socketFD, 16) == 0 else { throw ManagerError.ipc("Failed to listen on IPC socket: \(String(cString: strerror(errno)))") }
 
@@ -46,8 +54,42 @@ final class UnixServer {
         }
     }
 
+    // File permissions on the socket are a first filter, but they aren't
+    // sufficient authorization by themselves for a channel that can issue
+    // root-level start/stop/enable commands — anyone who can reach the
+    // socket (e.g. through a future permission mistake, a misconfigured
+    // group, or a bind-mount) would otherwise be able to drive the daemon
+    // with zero additional identity check. Verify the actual connecting
+    // process's credentials before dispatching anything it sends.
+    private func isAuthorized(client: Int32) -> Bool {
+        var credential = xucred()
+        var size = socklen_t(MemoryLayout<xucred>.size)
+        guard getsockopt(client, SOL_LOCAL, LOCAL_PEERCRED, &credential, &size) == 0 else {
+            return false
+        }
+        if credential.cr_uid == 0 { return true }
+        guard let wheelGroup = getgrnam("wheel") else { return false }
+        let wheelGID = wheelGroup.pointee.gr_gid
+        let groupCount = Int(credential.cr_ngroups)
+        return withUnsafeBytes(of: credential.cr_groups) { raw -> Bool in
+            let groups = raw.bindMemory(to: gid_t.self)
+            for index in 0..<min(groupCount, groups.count) where groups[index] == wheelGID {
+                return true
+            }
+            return false
+        }
+    }
+
     private func handle(client: Int32) {
         defer { close(client) }
+
+        guard isAuthorized(client: client) else {
+            let response = IPCResponse(exitCode: 1, error: "Permission denied: only root or members of the admin (wheel) group may control units.")
+            if let data = try? codec.encode(response) {
+                _ = data.withUnsafeBytes { send(client, $0.baseAddress, data.count, 0) }
+            }
+            return
+        }
 
         let handle = FileHandle(fileDescriptor: client, closeOnDealloc: false)
         var input = Data()
