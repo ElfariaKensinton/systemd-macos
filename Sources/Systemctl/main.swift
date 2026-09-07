@@ -364,9 +364,24 @@ do {
     }
 
     let response = try request(IPCRequest(action: options.action, units: options.units))
-    if response.exitCode != 0 {
+
+    // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
+    // *state* (e.g. inactive), not a command failure — real systemd still prints
+    // the status/output in that case and just exits non-zero. Only bail out early
+    // (without printing output) when there's an actual error, or for actions
+    // where a non-zero exit code always means the command itself failed.
+    let isStateReflectingAction = options.action == .status
+        || options.action == .isActive
+        || options.action == .isEnabled
+
+    if response.exitCode != 0 && !isStateReflectingAction {
         if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
+    }
+
+    if response.exitCode != 0, let error = response.error {
+        // Even for state-reflecting actions, surface a genuine error if present.
+        if !options.quiet { fputs("\(error)\n", stderr) }
     }
 
     if !response.statuses.isEmpty {
@@ -375,10 +390,12 @@ do {
     if !response.output.isEmpty {
         outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
     }
-    if !options.quiet && response.statuses.isEmpty && response.output.isEmpty {
+    if !options.quiet && response.statuses.isEmpty && response.output.isEmpty && response.exitCode == 0 {
         print("OK")
     }
+
+    exit(response.exitCode)
 } catch {
-    if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
+    if !quietOnError { fputs("systemd-macos: \(error)\n", stderr) }
     exit(1)
 }
