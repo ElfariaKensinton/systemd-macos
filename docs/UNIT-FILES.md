@@ -9,7 +9,8 @@ This document is the authoritative reference for the current systemd-macos imple
 - **Unit types:** `.service` units only
 - **Manager transport:** Unix-domain socket at `/var/run/systemd-macos.sock`
 - **Bootstrapping:** `launchd` starts the systemd-macos daemon; service lifecycle is handled by systemd-macos itself
-- **Unit search paths:** `/etc/systemd/system` first-class system units and `/usr/local/lib/systemd/system` vendor units
+- **Persistent unit paths:** `/etc/systemd/system` and `/usr/local/lib/systemd/system`
+- **Runtime unit path:** `/var/run/systemd/system`
 - **Enablement state:** `/var/lib/systemd-macos/enabled`
 - **Service logs:** `/var/lib/systemd-macos/log`
 
@@ -23,7 +24,15 @@ Only these sections are currently accepted:
 - `[Service]`
 - `[Install]`
 
-Unknown sections are rejected. Unknown keys inside a recognized section are currently ignored rather than treated as fatal errors.
+Unknown sections are rejected. Unknown keys inside a recognized section are ignored.
+
+### Drop-ins
+
+Persistent drop-ins are read from a sibling `<unit>.service.d/` directory next to the unit file. Runtime drop-ins are read from `/var/run/systemd/system/<unit>.service.d/`.
+
+Only files ending in `.conf` are loaded, in sorted filename order. Persistent drop-ins are applied first; runtime drop-ins are applied afterward, giving runtime configuration precedence.
+
+`systemctl edit UNIT` creates `override.conf` in the persistent drop-in directory by default. `--runtime` selects the runtime directory instead.
 
 ### `[Unit]`
 
@@ -32,47 +41,47 @@ Unknown sections are rejected. Unknown keys inside a recognized section are curr
 | `Description=` | Implemented | Stored as unit metadata and displayed by `status`/`list-units`; exposed by `show`. |
 | `Documentation=` | Parsed | Stored as metadata. Multiple whitespace-separated references are accepted. It does not launch a browser or otherwise act on the URLs. |
 | `Requires=` | Implemented | Dependencies are started recursively before the requested service. Dependency cycles are detected. |
-| `Wants=` | Implemented | Dependencies are started recursively before the requested service, but a missing/failing wanted unit does not have separate weak-dependency semantics beyond the current recursive start behaviour. |
+| `Wants=` | Implemented | Dependencies are started recursively before the requested service. The current implementation does not provide the full weak-dependency transaction semantics of Linux systemd. |
 | `After=` | Parsed | Ordering metadata is retained but is not currently used to schedule starts. |
 | `Before=` | Parsed | Ordering metadata is retained but is not currently used to schedule starts. |
 | `Conflicts=` | Implemented | Active conflicting services are stopped before the requested unit is launched. |
 
-`Requires=` and `Wants=` accept whitespace-separated unit names.
+`Requires=`, `Wants=`, `After=`, `Before=`, and `Conflicts=` accept whitespace-separated unit names.
 
 ### `[Service]`
 
 | Key | Status | Accepted values / format | Behaviour |
 |---|---|---|---|
-| `Type=` | Implemented | `simple`, `exec`, `forking`, `oneshot`, `notify`, `idle` | Parsed into the service model. Process supervision is currently based on the launched process; the distinct Linux semantics of `exec`, `forking`, `notify`, and `idle` are not fully reproduced. |
-| `ExecStart=` | Implemented | Command string | Main service command. One `ExecStart=` value is retained. |
-| `ExecStartPre=` | Implemented | Command string, repeatable | Commands run before `ExecStart`. Their stdout/stderr is discarded from service logs. A non-zero exit fails the start. |
-| `ExecStartPost=` | Implemented | Command string, repeatable | Commands are launched after a long-running main process has been started. Their stdout/stderr is discarded from service logs. Failures are currently ignored. |
-| `ExecStop=` | Implemented | Command string, repeatable | The first configured stop command is run during stop. Its stdout/stderr is discarded from service logs. |
-| `Restart=` | Implemented | `no`, `on-success`, `on-failure`, `on-abnormal`, `on-watchdog`, `on-abort`, `always` | Controls automatic restart after process exit. The current Darwin implementation treats the abnormal/watchdog/abort variants as non-zero-exit restart policies. |
-| `RestartSec=` | Implemented | seconds, milliseconds, minutes, hours, days, or `infinity` | Delay before automatic restart. `infinity` maps to the maximum finite `TimeInterval` and is not intended as a useful restart delay. |
-| `TimeoutStartSec=` | Parsed | duration | Stored in the service model. It is not currently used as a hard launch timeout. |
-| `TimeoutStopSec=` | Implemented | duration | Maximum time waited for the service process to exit after the configured `KillSignal`. |
-| `User=` | Implemented | user name | Service process is launched through the privileged `systemd-exec-helper` when needed so the target UID is applied. |
-| `Group=` | Implemented | group name | Service process is launched through the privileged helper so the target primary GID is applied. |
+| `Type=` | Implemented (partial semantics) | `simple`, `exec`, `forking`, `oneshot`, `notify`, `idle` | Parsed into the service model. Process supervision is based on the launched process; the distinct Linux semantics of `exec`, `forking`, `notify`, and `idle` are not fully reproduced. |
+| `ExecStart=` | Implemented | Command string | Main service command. One value is retained. Required unless `Type=oneshot`. |
+| `ExecStartPre=` | Implemented | Command string, repeatable | Commands run before `ExecStart`. Their stdout/stderr is discarded. A non-zero exit fails the start. |
+| `ExecStartPost=` | Implemented | Command string, repeatable | Commands are launched after a long-running main process has been started. Their stdout/stderr is discarded. Failures are currently ignored. |
+| `ExecStop=` | Implemented | Command string, repeatable | The first configured stop command is run during stop. Its stdout/stderr is discarded. |
+| `Restart=` | Implemented | `no`, `on-success`, `on-failure`, `on-abnormal`, `on-watchdog`, `on-abort`, `always` | Controls automatic restart after process exit. `on-abnormal`, `on-watchdog`, and `on-abort` currently use non-zero exit as the restart condition. |
+| `RestartSec=` | Implemented | seconds, milliseconds, minutes, hours, days, or `infinity` | Delay before automatic restart. `infinity` maps to the maximum finite `TimeInterval` and is not intended as a practical restart delay. |
+| `TimeoutStartSec=` | Parsed | duration | Stored in the service model but not currently enforced as a hard launch timeout. |
+| `TimeoutStopSec=` | Implemented | duration | Maximum time waited for the service process to exit after `KillSignal=`. |
+| `User=` | Implemented | user name | Service commands are launched through the privileged `systemd-exec-helper` when needed so the target UID is applied. |
+| `Group=` | Implemented | group name | Service commands are launched through the privileged helper so the target primary GID is applied. |
 | `SupplementaryGroups=` | Implemented | whitespace-separated group names | Supplementary groups are applied through the helper. |
 | `WorkingDirectory=` | Implemented | filesystem path | Sets the launched process current working directory. |
 | `UMask=` | Implemented | octal `000` through `777` | Applies the process file-creation mask through the helper. |
 | `LimitNOFILE=` | Implemented | unsigned integer | Applies the open-file descriptor limit through the helper. `infinity` is not accepted. |
-| `Environment=` | Implemented | `KEY=VALUE` | Adds or overrides a process environment variable. Quoted `"KEY=VALUE"` form is accepted. |
+| `Environment=` | Implemented | `KEY=VALUE` | Adds or overrides a process environment variable. A surrounding pair of quotes is accepted. |
 | `EnvironmentFile=` | Implemented | filesystem path | Reads simple `KEY=VALUE` lines, ignoring blank lines and `#` comments. A leading `-` path is ignored for compatibility. Shell expansion and full systemd environment-file quoting are not implemented. |
 | `RemainAfterExit=` | Implemented | `yes`/`no`, `true`/`false`, `1`/`0` | A successfully exited service is represented as `exited` rather than `dead` when enabled. |
 | `KillSignal=` | Implemented | numeric signal or supported name | Used for the main process during stop. Supported names: `HUP`, `INT`, `QUIT`, `ABRT`, `KILL`, `TERM`, `STOP`, `CONT`, with or without `SIG`. |
-| `StandardOutput=` | Implemented (limited) | default `journal`; `null` | Default output is captured in the unit stdout log. `null` discards stdout. Other values are currently treated as file-backed capture rather than implementing the complete systemd output target matrix. |
-| `StandardError=` | Implemented (limited) | default `inherit`; `null` | Default stderr is captured in the unit stderr log. `null` discards stderr. Other values are currently treated as file-backed capture rather than implementing the complete systemd output target matrix. |
-| `CapabilityBoundingSet=` | Linux-only / rejected | capability names | The key is parsed, but a non-empty value is rejected because Linux capabilities do not have a direct macOS equivalent. |
-| `AmbientCapabilities=` | Linux-only / rejected | capability names | The key is parsed, but a non-empty value is rejected because Linux ambient capabilities do not have a direct macOS equivalent. |
-| `NoNewPrivileges=` | Linux-only / rejected | `yes`/`no`, `true`/`false`, `1`/`0` | The key is parsed. `yes` is rejected because there is no exact macOS equivalent implemented by this project. |
+| `StandardOutput=` | Implemented (limited) | default `journal`; `null` | Default output is captured in the unit stdout log. `null` discards stdout. Other values are currently treated as file-backed capture rather than implementing the complete systemd output-target matrix. |
+| `StandardError=` | Implemented (limited) | default `inherit`; `null` | Default stderr is captured in the unit stderr log. `null` discards stderr. Other values are currently treated as file-backed capture rather than implementing the complete systemd output-target matrix. |
+| `CapabilityBoundingSet=` | Linux-only / rejected | capability names | A non-empty value is rejected because Linux capabilities do not have a direct macOS equivalent implemented here. |
+| `AmbientCapabilities=` | Linux-only / rejected | capability names | A non-empty value is rejected because Linux ambient capabilities do not have a direct macOS equivalent implemented here. |
+| `NoNewPrivileges=` | Linux-only / rejected | `yes`/`no`, `true`/`false`, `1`/`0` | The key is parsed. `yes` is rejected because no exact macOS equivalent is implemented. |
 
 ### `[Install]`
 
 | Key | Status | Behaviour |
 |---|---|---|
-| `WantedBy=` | Implemented (enablement metadata) | Stored with the unit and retained in the unit model. `enable` creates an enablement marker; target activation semantics are not currently implemented. |
+| `WantedBy=` | Implemented as metadata | Stored with the unit and retained in the unit model. `enable` creates an enablement marker; target activation semantics are not implemented. |
 | `Alias=` | Implemented | `enable` creates markers for aliases and `disable` removes them. |
 
 ## Required service configuration
@@ -116,11 +125,11 @@ Alias=example.service
 
 ## Process execution model
 
-The manager launches commands through `/bin/sh -c` so unit command strings can use ordinary shell syntax.
+The manager launches commands through `/bin/sh -c`, so unit command strings can use ordinary shell syntax.
 
 When any of `User=`, `Group=`, `SupplementaryGroups=`, `UMask=`, or `LimitNOFILE=` is configured, commands are launched through the root-owned `systemd-exec-helper` binary. The helper applies the supported credential/resource settings and then executes the command.
 
-`ExecStartPre=`, `ExecStartPost=`, and `ExecStop=` are control commands. Their stdout and stderr are intentionally redirected to `/dev/null` so shell output from setup/teardown commands does not become service journal content.
+`ExecStartPre=`, `ExecStartPost=`, and `ExecStop=` are control commands. Their stdout and stderr are intentionally redirected to `/dev/null` so setup/teardown output does not become service log content.
 
 The main service process uses file-backed stdout/stderr logs by default. Logs are truncated when a new service instance is started.
 
@@ -136,7 +145,15 @@ The main service process uses file-backed stdout/stderr logs by default. Logs ar
 
 ### Restart
 
-`restart UNIT` stops an active service and starts it again.
+`restart UNIT` stops an active service and starts it again. An explicitly requested `restart` starts the service even when it is disabled; enablement controls boot/startup eligibility, not whether an explicit lifecycle command may start the unit.
+
+### Reload
+
+`reload UNIT` currently performs a restart because there is no separate reload protocol or process-signal implementation yet.
+
+### `--now`
+
+`enable --now UNIT` enables the unit and then starts it. `disable --now UNIT` stops the unit first and then removes its enablement marker.
 
 ### Automatic restart
 
@@ -148,11 +165,11 @@ The current implementation does not model every systemd restart classification d
 
 `systemctl enable` creates a persistent marker under `/var/lib/systemd-macos/enabled`. On daemon startup, enabled services are loaded and started.
 
-`WantedBy=` is retained for systemd-compatible unit syntax, but this project does not currently implement target units or full target transaction semantics. Enabling a service therefore does not create a graph of target dependencies.
+`WantedBy=` is retained for systemd-compatible unit syntax, but this project does not implement target units or full target transaction semantics. Enabling a service therefore does not create a graph of target dependencies.
 
 The systemd-macos daemon itself is bootstrapped by a small `/Library/LaunchDaemons/com.elfaria.systemd-macos.plist` generated by the installer. `launchd` owns only the daemon bootstrap process, not the individual `.service` lifecycle.
 
-## Logging
+## Logging and `journalctl`
 
 Service logs are stored in:
 
@@ -170,6 +187,22 @@ The daemon's own launchd-managed stdout/stderr are stored under:
 /var/lib/systemd-macos/daemon.stderr.log
 ```
 
+Supported `journalctl` operations are:
+
+```text
+journalctl -u UNIT
+journalctl -u UNIT -n N
+journalctl -u UNIT -f
+```
+
+The following compatibility options are accepted but do not add the corresponding full systemd feature:
+
+```text
+-x, --catalog
+-e, --pager-end
+--no-pager
+```
+
 ## `systemctl` command surface
 
 Implemented commands:
@@ -182,6 +215,7 @@ reload UNIT...
 status UNIT...
 enable UNIT...
 disable UNIT...
+edit UNIT
 is-active UNIT...
 is-enabled UNIT...
 daemon-reload
@@ -191,7 +225,7 @@ cat UNIT...
 show UNIT...
 ```
 
-Accepted compatibility/global options:
+Accepted options:
 
 ```text
 --quiet, -q
@@ -201,43 +235,83 @@ Accepted compatibility/global options:
 --user
 --plain
 --now
+--full
+--runtime
+--force
 --version
 --help, -h
 ```
 
 ### Command notes
 
-- `reload` currently performs a restart because there is no separate reload protocol/process-signal implementation yet.
+- `edit UNIT` edits a persistent drop-in by default.
+- `edit --full UNIT` edits the complete persistent unit file.
+- `edit --runtime UNIT` places the edit under `/var/run/systemd/system`.
+- `edit --force UNIT` permits creating a missing unit.
+- A successful `edit` automatically requests `daemon-reload` after the editor exits.
+- The editor is selected from `SYSTEMD_EDITOR`, `SUDO_EDITOR`, `EDITOR`, or `VISUAL`, falling back to `/usr/bin/vi`.
 - `--system` is accepted; system scope is the default.
-- `--user` is accepted for grammar compatibility but there is no independent per-user manager implementation yet.
-- `--plain` is accepted for compatibility.
+- `--user` is accepted for command-line compatibility but there is no independent per-user manager or user-unit directory implementation.
+- `--plain` disables ANSI colors and underlines in status output.
+- `--quiet` suppresses successful command output.
+- `--no-legend` suppresses supported status/list headers.
 - `--now` combines enable/disable with immediate start/stop.
-- `status` and list commands display unit description and runtime state.
+- `status` and list commands display unit descriptions and runtime state.
 - `show` exposes machine-readable properties including `Id`, `Description`, `LoadState`, `ActiveState`, `SubState`, `MainPID`, `UnitFileState`, `Result`, and `FragmentPath`.
 
-## `journalctl` surface
+### Status exit codes and output
 
-The project provides a `journalctl` binary focused on service stdout/stderr logs.
+`status`, `is-active`, and `is-enabled` are state-reflecting commands. A non-zero manager exit code is returned to the shell when the requested state is not satisfied, while the response output is still displayed.
 
-Current behaviour includes:
+Other commands treat a non-zero manager response as an operation failure and return that exit code after reporting the error unless `--quiet` is in effect.
+
+### Status pager
+
+`status` is the only `systemctl` action that automatically invokes the pager. Paging occurs only when both stdin and stdout are terminals and `--no-pager` has not been supplied.
+
+The default pager is:
 
 ```text
-journalctl -u UNIT
-journalctl -u UNIT -n N
-journalctl -u UNIT -f
+less -R -F -X
 ```
 
-The implementation tails the project log files rather than reading a system journal database.
+`SYSTEMD_PAGER` takes precedence over `PAGER`. Setting the pager to `cat` disables paging. When a configured pager is `less`, conflicting `-S`, `--chop-long-lines`, `-R`, `-F`, and `--no-init` options are removed and the client ensures `-R -F -X` behaviour.
+
+## Editing units
+
+The editing workflow is deliberately close to systemd's drop-in model:
+
+```sh
+sudo systemctl edit example.service
+```
+
+This creates or edits:
+
+```text
+/etc/systemd/system/example.service.d/override.conf
+```
+
+Runtime editing uses:
+
+```sh
+sudo systemctl edit --runtime example.service
+```
+
+which targets:
+
+```text
+/var/run/systemd/system/example.service.d/override.conf
+```
+
+Full-file editing uses `--full`; `--force` permits creating a unit that does not already exist. The editor must exit successfully for the command to succeed.
 
 ## Metadata vs enforced behaviour
 
-The following distinction is important when porting Linux unit files:
+**Actually enforced on macOS:** command execution, recursive `Requires=`/`Wants=` handling, `Conflicts=`, restart policy, restart delay, stop timeout, user/group credentials, supplementary groups, working directory, umask, `LimitNOFILE=`, environment, environment files, remain-after-exit state, kill signal, service stdout/stderr capture, persistent enablement markers, aliases, persistent/runtime drop-ins, and the `--now` enable/disable lifecycle operations.
 
-**Actually enforced on macOS:** command execution, dependencies (`Requires=`, `Wants=`), conflicts, restart policy, restart delay, stop timeout, user/group credentials, supplementary groups, working directory, umask, `LimitNOFILE=`, environment, environment files, remain-after-exit state, kill signal, service stdout/stderr capture, enablement markers, aliases.
+**Parsed/stored but not fully enforced:** `Documentation=`, `After=`, `Before=`, `TimeoutStartSec=`, target-specific `WantedBy=` semantics, several `Type=` distinctions, and most `StandardOutput=`/`StandardError=` destinations.
 
-**Parsed/stored but not fully enforced:** `Documentation=`, `After=`, `Before=`, `TimeoutStartSec=`, target-specific `WantedBy=` semantics, several `Type=` distinctions, most `StandardOutput=`/`StandardError=` destinations.
-
-**Explicitly unavailable on macOS in the current implementation:** non-empty `CapabilityBoundingSet=`, non-empty `AmbientCapabilities=`, and `NoNewPrivileges=yes`.
+**Explicitly unavailable/rejected:** non-empty `CapabilityBoundingSet=`, non-empty `AmbientCapabilities=`, and `NoNewPrivileges=yes`.
 
 ## Not implemented by design/current scope
 
@@ -266,7 +340,22 @@ The absence of these features is intentional; unsupported Linux-only primitives 
 
 ## Installation layout
 
-Release installation places the main binaries in `/usr/local/bin` and registers the daemon with `launchd`. The release package also contains shell completions and `systemd-exec-helper` for credential/resource-limit execution.
+Release installation places the main binaries in `/usr/local/bin` by default and registers the daemon with `launchd`. The release package also contains shell completions and `systemd-exec-helper` for credential/resource-limit execution.
+
+The installer creates or uses:
+
+```text
+/usr/local/bin/systemd
+/usr/local/bin/systemctl
+/usr/local/bin/journalctl
+/usr/local/bin/systemd-exec-helper
+/etc/systemd/system
+/usr/local/lib/systemd/system
+/var/run/systemd/system
+/var/lib/systemd-macos/enabled
+/var/lib/systemd-macos/log
+/Library/LaunchDaemons/com.elfaria.systemd-macos.plist
+```
 
 ## Compatibility principle
 
