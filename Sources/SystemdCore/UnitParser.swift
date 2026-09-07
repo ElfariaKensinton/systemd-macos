@@ -4,8 +4,26 @@ public struct UnitParser: Sendable {
     public init() {}
 
     public func parse(url: URL) throws -> UnitFile {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        return try parse(text: text, name: url.lastPathComponent, path: url)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        let name = url.lastPathComponent
+
+        // Apply persistent drop-ins first, then runtime drop-ins so the
+        // runtime configuration has the same precedence as systemd.
+        let persistentDropIn = url.deletingLastPathComponent().appendingPathComponent("\(name).d", isDirectory: true)
+        text += try readDropIns(from: persistentDropIn)
+        let runtimeDropIn = SystemdPaths.runtimeUnitDirectory.appendingPathComponent("\(name).d", isDirectory: true)
+        if runtimeDropIn.path != persistentDropIn.path {
+            text += try readDropIns(from: runtimeDropIn)
+        }
+        return try parse(text: text, name: name, path: url)
+    }
+
+    private func readDropIns(from directory: URL) throws -> String {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return "" }
+        return try names.filter { $0.hasSuffix(".conf") }.sorted().map { name in
+            let url = directory.appendingPathComponent(name)
+            return "\n" + (try String(contentsOf: url, encoding: .utf8)) + "\n"
+        }.joined()
     }
 
     public func parse(text: String, name: String, path: URL = URL(fileURLWithPath: "")) throws -> UnitFile {
@@ -87,7 +105,7 @@ public struct UnitParser: Sendable {
         case "Type":
             guard let value = ServiceType(rawValue: value) else { throw ManagerError.invalidConfiguration("unsupported Type=\(value)") }
             service.type = value
-        case "ExecStart": service.execStart = [value]
+        case "ExecStart": service.execStart = value.isEmpty ? [] : [value]
         case "ExecStartPre": service.execStartPre.append(value)
         case "ExecStartPost": service.execStartPost.append(value)
         case "ExecStop": service.execStop.append(value)
