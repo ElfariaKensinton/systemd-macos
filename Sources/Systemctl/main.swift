@@ -237,14 +237,6 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
     return try codec.decode(IPCResponse.self, from: responseData)
 }
 
-func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
-    if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
-    for status in statuses {
-        let description = status.description ?? ""
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(description)")
-    }
-}
-
 func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus]) {
     guard !output.isEmpty else { return }
     let formatted = colorizedStatusOutput(output, statuses: statuses, plain: plain)
@@ -386,16 +378,6 @@ do {
         if !options.quiet { fputs("\(error)\n", stderr) }
     }
 
-    // The TSV table (UNIT LOAD ACTIVE SUB DESCRIPTION) belongs only to
-    // list-units / list-unit-files. `status` also populates `statuses` (it's
-    // the raw data colorizedStatusOutput uses to color response.output), so
-    // gate on the action here rather than just "statuses non-empty", or
-    // `status` prints both the table AND the real status block.
-    let isListAction = options.action == .listUnits || options.action == .listUnitFiles
-
-    if isListAction, !response.statuses.isEmpty {
-        printStatuses(response.statuses, noLegend: options.noLegend)
-    }
     if !response.output.isEmpty {
         outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
     }
