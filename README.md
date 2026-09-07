@@ -2,11 +2,26 @@
 
 A from-scratch service manager for macOS that intentionally speaks the systemd language.
 
-This is **not a port of systemd** and does not embed or link against systemd code. The runtime is implemented natively in Swift using macOS process, filesystem, and Unix-domain socket primitives. `launchd` is used only to bootstrap the manager itself at macOS boot; service lifecycle, dependency handling, enablement state, and the `systemctl` protocol belong to systemd-macos.
+This is **not a port of systemd** and does not embed or link against systemd code. The runtime is implemented natively in Swift using macOS process, filesystem, and Unix-domain socket primitives. `launchd` is used to bootstrap the manager itself at macOS boot; service lifecycle, dependency handling, enablement state, and the `systemctl` protocol belong to systemd-macos.
 
-## Goals
+## Current scope
 
-The project intentionally implements a coherent subset first rather than pretending to be a complete reimplementation of every systemd subsystem. The architecture leaves room for additional unit types, socket activation, timers, targets, cgroups, journaling, notification sockets, and user managers without changing the unit-file or CLI grammar.
+The current implementation is focused on `.service` units and the core service-manager workflow:
+
+- service start, stop, restart, reload, status, enable and disable
+- `--now` enable/disable transactions
+- dependency handling for `Requires=`, `Wants=` and `Conflicts=`
+- restart policies and stop timeouts
+- credentials and resource limits through `systemd-exec-helper`
+- environment files and working-directory configuration
+- persistent and runtime unit drop-ins
+- `systemctl edit`, including `--full`, `--runtime` and `--force`
+- `systemctl show`, `cat`, `list-units` and `list-unit-files`
+- project-local service logging through `journalctl`
+- systemd-like status formatting and an interactive `less` pager for `status`
+- shell completions for `systemctl` and `journalctl`
+
+The project intentionally implements a coherent subset rather than claiming to reproduce every systemd subsystem.
 
 ## Architecture
 
@@ -36,7 +51,7 @@ The project intentionally implements a coherent subset first rather than pretend
                  macOS Process
 ```
 
-The manager stores enablement markers under `/var/lib/systemd-macos/enabled` and captures service stdout/stderr under `/var/lib/systemd-macos/log` by default. Unit files are discovered from `/etc/systemd/system` and `/usr/local/lib/systemd/system`.
+The manager stores enablement markers under `/var/lib/systemd-macos/enabled` and captures service stdout/stderr under `/var/lib/systemd-macos/log` by default. Unit files are discovered from `/etc/systemd/system` and `/usr/local/lib/systemd/system`; runtime units and drop-ins use `/var/run/systemd/system`.
 
 ## Build
 
@@ -52,32 +67,36 @@ The resulting binaries are:
 ```text
 .build/release/systemd
 .build/release/systemctl
+.build/release/journalctl
+.build/release/systemd-exec-helper
 ```
 
-## Install from GitHub Pages
+## Install
 
-The recommended installation method downloads a verified binary for the current Mac architecture from the latest GitHub Release, installs the daemon, and registers its LaunchDaemon so it starts at boot.
+The release installer is `scripts/install.sh`. It downloads a release archive for the current Mac architecture, verifies its SHA-256 checksum, installs the binaries and completions, creates the systemd-macos state/unit directories, and registers `/Library/LaunchDaemons/com.elfaria.systemd-macos.plist` with `launchd`.
 
 ```sh
-curl -fsSL https://elfariakensinton.github.io/systemd-macos/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash
 ```
 
-The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`), verifies the SHA-256 checksum published with the release, and uses the stable `releases/latest/download` asset aliases. It invokes `sudo` only for the system-level installation and LaunchDaemon registration steps.
+The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`) and uses `sudo` for system-level installation and LaunchDaemon registration.
 
-## Build and release
+The release workflow currently publishes versioned architecture-specific archives and checksum files. The installer expects `releases/latest/download` asset aliases, so those aliases must exist on the release being installed.
 
-The GitHub Actions **Build and Release** workflow is manually triggered from the Actions tab. It builds and tests both supported macOS architectures. The workflow can either keep the result as Actions artifacts or publish it as a GitHub Release.
+For development from a checkout, build the binaries directly with Swift and install them manually. The installer is release-oriented rather than a source-build installer.
 
-Release tags and titles are generated automatically. For example:
+## Release workflow
 
-```text
-Tag:   v0.1.0-build.20260906.42
-Name:  systemd-macos 0.1.0 — Build 42 (20260906)
-```
+There is one GitHub Actions workflow: **Build and Release**. It is manually triggered from the Actions tab.
 
-Published releases contain versioned archives, SHA-256 checksums, and stable `latest` aliases used by the one-line installer.
+It builds and tests both supported macOS architectures:
 
-For development from a checkout, build the binaries directly with Swift and install them manually; `scripts/install.sh` is intentionally the release installer rather than a source-build installer.
+- `arm64` on `macos-15`
+- `x86_64` on `macos-15-intel`
+
+Each build produces an archive and SHA-256 checksum. When `publish_release` is enabled, the workflow creates a GitHub Release with a generated build tag and release title. Releases contain the versioned `arm64` and `x86_64` archives and their checksums.
+
+There is currently **no GitHub Pages deployment workflow**. The `docs/` directory is documentation/source content, not an automatically deployed Pages site.
 
 ## Unit example
 
@@ -104,14 +123,50 @@ Put the file at `/etc/systemd/system/my-app.service`, then:
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now my-app.service
-sudo systemctl status my-app.service
+systemctl status my-app.service
+```
+
+`disable --now` stops the service before removing its enablement marker:
+
+```sh
+sudo systemctl disable --now my-app.service
 ```
 
 The repository includes the same style of example in `example/systemd-macos-demo.service`.
 
+## Editing units
+
+`systemctl edit` creates or edits a persistent drop-in by default:
+
+```sh
+sudo systemctl edit my-app.service
+```
+
+Use `--full` to edit the complete unit file, `--runtime` for a runtime-only drop-in/full unit, and `--force` to create a missing unit:
+
+```sh
+sudo systemctl edit --full my-app.service
+sudo systemctl edit --runtime my-app.service
+sudo systemctl edit --force my-new-app.service
+```
+
+The editor is selected from `SYSTEMD_EDITOR`, `SUDO_EDITOR`, `EDITOR`, or `VISUAL`, falling back to `/usr/bin/vi`. A successful edit triggers `daemon-reload` automatically.
+
+## Status and pager behaviour
+
+`systemctl status` is the only `systemctl` command that automatically uses the interactive pager. When both standard input and output are terminals, the default pager is:
+
+```text
+less -R -F -X
+```
+
+`--no-pager` disables it. `SYSTEMD_PAGER` takes precedence over `PAGER`; `cat` disables paging. For `less`, the client normalizes conflicting options and retains color output while allowing short status output to exit immediately.
+
+State-reflecting commands such as `status`, `is-active`, and `is-enabled` retain their normal non-zero exit status while still displaying the manager's response.
+
 ## Feature and compatibility reference
 
-The complete unit-file, process-execution, lifecycle, logging, `systemctl`, `journalctl`, platform-limit, and unsupported-feature reference is maintained separately so the README stays focused on project usage:
+The complete unit-file, process-execution, lifecycle, logging, `systemctl`, `journalctl`, platform-limit, editing, pager, and unsupported-feature reference is maintained separately:
 
 **[Feature and Unit-File Reference](docs/UNIT-FILES.md)**
 
