@@ -11,7 +11,7 @@
     body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     main { max-width: 900px; margin: 0 auto; padding: 80px 24px; }
     h1 { font-size: clamp(42px, 8vw, 76px); line-height: 1; margin: 0 0 18px; letter-spacing: -0.04em; }
-    p { color: var(--muted); max-width: 680px; }
+    p { color: var(--muted); max-width: 720px; }
     .tag { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .command { margin: 36px 0; padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -19,24 +19,34 @@
     a { color: var(--accent); }
     .links { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 28px; }
     small { color: var(--muted); }
+    ul { color: var(--muted); max-width: 720px; }
   </style>
 </head>
 <body>
   <main>
     <div class="tag">macOS service manager</div>
     <h1>systemd-macos</h1>
-    <p>A systemd-like service manager for macOS, with <code>systemctl</code>, <code>journalctl</code>, unit files, drop-ins, runtime units, and LaunchDaemon integration.</p>
+    <p>A systemd-like service manager for macOS, implemented natively in Swift with <code>systemd</code>, <code>systemctl</code>, <code>journalctl</code>, service unit files, drop-ins, runtime edits, and LaunchDaemon bootstrapping.</p>
 
-    <div class="command"><code>curl -fsSL https://elfariakensinton.github.io/systemd-macos/install.sh | bash</code></div>
+    <div class="command"><code>curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash</code></div>
 
-    <p>The installer downloads the latest release for your Mac, verifies its SHA-256 checksum, installs the binaries, unit directories, shell completions, and LaunchDaemon, then starts the daemon.</p>
+    <p>The release installer downloads an architecture-specific GitHub Release, verifies its SHA-256 checksum, installs the binaries and shell completions, creates the unit/state directories, and registers the daemon with <code>launchd</code>.</p>
+
+    <ul>
+      <li>macOS 13+ and Swift 5.10+</li>
+      <li>Apple Silicon and Intel release builds</li>
+      <li><code>systemctl edit</code> with persistent and runtime drop-ins</li>
+      <li><code>status</code> pager support with <code>less -R -F -X</code></li>
+      <li>Project-local service logs exposed through <code>journalctl</code></li>
+    </ul>
 
     <div class="links">
       <a href="https://github.com/ElfariaKensinton/systemd-macos">GitHub</a>
       <a href="https://github.com/ElfariaKensinton/systemd-macos/releases">Releases</a>
-      <a href="install.sh">Install script</a>
+      <a href="https://github.com/ElfariaKensinton/systemd-macos/blob/main/docs/UNIT-FILES.md">Feature and unit-file reference</a>
+      <a href="https://github.com/ElfariaKensinton/systemd-macos/blob/main/scripts/install.sh">Install script</a>
     </div>
-    <p><small>Requires macOS and sudo access.</small></p>
+    <p><small>The repository no longer contains a GitHub Pages deployment workflow. This file remains the project's static documentation landing page.</small></p>
   </main>
 </body>
 </html>
