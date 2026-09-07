@@ -131,11 +131,20 @@ public final class ServiceManager: @unchecked Sendable {
 
         if let process, process.isRunning {
             #if canImport(Darwin)
-            kill(process.processIdentifier, unit.service.killSignal)
+            _ = kill(process.processIdentifier, unit.service.killSignal)
             #endif
             let deadline = Date().addingTimeInterval(unit.service.timeoutStopSec)
-            while process.isRunning && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-            if process.isRunning { process.terminate() }
+            while process.isRunning && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+            if process.isRunning {
+                #if canImport(Darwin)
+                _ = kill(process.processIdentifier, SIGKILL)
+                #else
+                process.terminate()
+                #endif
+                process.waitUntilExit()
+            }
         }
 
         lock.lock()
@@ -234,6 +243,7 @@ public final class ServiceManager: @unchecked Sendable {
         lock.lock()
         runtime[unit.name] = Runtime(state: "activating", result: "success", mainPID: 0)
         runtime[unit.name]?.process = process
+        runtime[unit.name]?.stopRequested = false
         lock.unlock()
 
         do {
