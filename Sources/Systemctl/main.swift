@@ -257,10 +257,12 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-F", "-R", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
-        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-X" || $0 == "--no-init" }
-        if command.count == 1 { command.append("-R") }
+        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "--no-init" }
+        if command.count == 1 {
+            command.append(contentsOf: ["-F", "-R", "-X"])
+        }
     }
 
     guard let executable = command.first else {
@@ -384,7 +386,14 @@ do {
         if !options.quiet { fputs("\(error)\n", stderr) }
     }
 
-    if !response.statuses.isEmpty {
+    // The TSV table (UNIT LOAD ACTIVE SUB DESCRIPTION) belongs only to
+    // list-units / list-unit-files. `status` also populates `statuses` (it's
+    // the raw data colorizedStatusOutput uses to color response.output), so
+    // gate on the action here rather than just "statuses non-empty", or
+    // `status` prints both the table AND the real status block.
+    let isListAction = options.action == .listUnits || options.action == .listUnitFiles
+
+    if isListAction, !response.statuses.isEmpty {
         printStatuses(response.statuses, noLegend: options.noLegend)
     }
     if !response.output.isEmpty {
