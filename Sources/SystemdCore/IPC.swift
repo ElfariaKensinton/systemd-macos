@@ -47,7 +47,7 @@ public enum SystemdPaths {
     public static let socket = URL(fileURLWithPath: "/var/run/systemd-macos.sock")
     public static let systemUnitDirectory = URL(fileURLWithPath: "/etc/systemd/system", isDirectory: true)
     public static let vendorUnitDirectory = URL(fileURLWithPath: "/usr/local/lib/systemd/system", isDirectory: true)
-    public static let runtimeUnitDirectory = URL(fileURLWithPath: "/run/systemd/system", isDirectory: true)
+    public static let runtimeUnitDirectory = URL(fileURLWithPath: "/var/run/systemd/system", isDirectory: true)
     public static let userUnitDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/systemd/user", isDirectory: true)
     public static let stateDirectory = URL(fileURLWithPath: "/var/lib/systemd-macos", isDirectory: true)
     public static let enablementDirectory = stateDirectory.appendingPathComponent("enabled", isDirectory: true)
