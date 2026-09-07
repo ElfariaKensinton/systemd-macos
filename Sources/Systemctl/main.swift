@@ -186,10 +186,10 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
 
     var status: Int32 = 0
     waitpid(pid, &status, 0)
-    guard WIFEXITED(status) else {
+    guard (status & 0x7f) == 0 else {
         throw ManagerError.ipc("editor terminated abnormally")
     }
-    let terminationStatus = WEXITSTATUS(status)
+    let terminationStatus = (status >> 8) & 0xff
     guard terminationStatus == 0 else {
         throw ManagerError.ipc("editor exited with status \(terminationStatus)")
     }
@@ -359,48 +359,25 @@ do {
             if !options.quiet, let error = started.error { fputs("\(error)\n", stderr) }
             exit(started.exitCode)
         }
-        exit(0)
-    }
-
-    if now && options.action == .disable {
-        let stopped = try request(IPCRequest(action: .stop, units: options.units))
-        guard stopped.exitCode == 0 else {
-            if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
-            exit(stopped.exitCode)
-        }
-        let disabled = try request(IPCRequest(action: .disable, units: options.units))
-        guard disabled.exitCode == 0 else {
-            if !options.quiet, let error = disabled.error { fputs("\(error)\n", stderr) }
-            exit(disabled.exitCode)
-        }
-        if !options.quiet, !disabled.output.isEmpty { print(disabled.output) }
+        if !options.quiet, !started.output.isEmpty { print(started.output) }
         exit(0)
     }
 
     let response = try request(IPCRequest(action: options.action, units: options.units))
-
-    switch options.action {
-    case .status:
-        if !options.quiet { outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses) }
-    case .listUnits, .listUnitFiles:
-        if !options.quiet { printStatuses(response.statuses, noLegend: options.noLegend) }
-    case .isActive:
-        if !options.quiet, let first = response.statuses.first { print(first.activeState == "active" ? "active" : "inactive") }
-    case .isEnabled:
-        if !options.quiet, let first = response.statuses.first { print(first.enabled ? "enabled" : "disabled") }
-    case .cat, .show, .enable, .disable:
-        if !options.quiet, !response.output.isEmpty { print(response.output) }
-    case .daemonReload:
-        break
-    default:
-        break
-    }
-
     if response.exitCode != 0 {
         if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
     }
-    exit(0)
+
+    if !response.statuses.isEmpty {
+        printStatuses(response.statuses, noLegend: options.noLegend)
+    }
+    if !response.output.isEmpty {
+        outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
+    }
+    if !options.quiet && response.statuses.isEmpty && response.output.isEmpty {
+        print("OK")
+    }
 } catch {
     if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
     exit(1)
