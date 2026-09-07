@@ -237,14 +237,14 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
     return try codec.decode(IPCResponse.self, from: responseData)
 }
 
-func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus]) {
+func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus], usePager: Bool) {
     guard !output.isEmpty else { return }
     let formatted = colorizedStatusOutput(output, statuses: statuses, plain: plain)
 
     let environment = ProcessInfo.processInfo.environment
     let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-    if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
+    if !usePager || noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
         print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
@@ -377,7 +377,7 @@ do {
     }
 
     if !response.output.isEmpty {
-        outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
+        outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses, usePager: options.action == .status)
     }
 
     exit(response.exitCode)
