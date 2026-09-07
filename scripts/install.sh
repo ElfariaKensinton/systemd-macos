@@ -5,6 +5,8 @@ REPO="ElfariaKensinton/systemd-macos"
 PREFIX="${PREFIX:-/usr/local}"
 BIN_DIR="$PREFIX/bin"
 SYSTEMD_DIR=/etc/systemd/system
+VENDOR_DIR=/usr/local/lib/systemd/system
+RUNTIME_DIR=/var/run/systemd/system
 STATE_DIR=/var/lib/systemd-macos
 PLIST=/Library/LaunchDaemons/com.elfaria.systemd-macos.plist
 BASE_URL="https://github.com/$REPO/releases/latest/download"
@@ -33,7 +35,7 @@ curl -fsSL "$BASE_URL/$CHECKSUM" -o "$TMP_DIR/$CHECKSUM"
 
 tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
 
-sudo install -d "$BIN_DIR" "$SYSTEMD_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
+sudo install -d "$BIN_DIR" "$SYSTEMD_DIR" "$VENDOR_DIR" "$RUNTIME_DIR" "$STATE_DIR/enabled" "$STATE_DIR/log"
 sudo install -m 755 "$TMP_DIR/bin/systemd" "$BIN_DIR/systemd"
 sudo install -m 755 "$TMP_DIR/bin/systemctl" "$BIN_DIR/systemctl"
 sudo install -m 755 "$TMP_DIR/bin/journalctl" "$BIN_DIR/journalctl"
@@ -78,6 +80,8 @@ sudo launchctl bootstrap system "$PLIST"
 
 echo "Installed systemd-macos ($ARCH) from the latest GitHub release."
 echo "Unit files: $SYSTEMD_DIR"
+echo "Vendor unit files: $VENDOR_DIR"
+echo "Runtime unit files: $RUNTIME_DIR"
 echo "Control socket: /var/run/systemd-macos.sock"
 echo "CLI: $BIN_DIR/systemctl"
 echo "Journal: $BIN_DIR/journalctl"
