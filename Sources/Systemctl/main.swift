@@ -375,9 +375,6 @@ do {
     if !response.output.isEmpty {
         outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
     }
-    if !options.quiet && response.statuses.isEmpty && response.output.isEmpty {
-        print("OK")
-    }
 } catch {
     if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
     exit(1)
