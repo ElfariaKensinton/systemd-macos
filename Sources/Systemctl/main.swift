@@ -151,10 +151,6 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
             }
         }
     } catch {
-        // /etc/systemd/system and /var/run/systemd/system are root-owned,
-        // so an unprivileged edit attempt fails here with some flavor of
-        // EACCES surfaced through NSError. Give a clear, actionable message
-        // instead of a raw Cocoa/POSIX error the user has to decode.
         if String(describing: error).localizedCaseInsensitiveContains("permission denied") {
             throw ManagerError.ipc("permission denied writing unit file — try again with sudo")
         }
@@ -162,21 +158,40 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
     }
 
     let environment = ProcessInfo.processInfo.environment
-    let editorSpec = environment["SYSTEMD_EDITOR"] ?? environment["EDITOR"] ?? environment["VISUAL"] ?? "vi"
+    let editorSpec = environment["SYSTEMD_EDITOR"] ?? environment["SUDO_EDITOR"] ?? environment["EDITOR"] ?? environment["VISUAL"] ?? "/usr/bin/vi"
     let parts = editorSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     guard let executable = parts.first else { throw ManagerError.ipc("editor is empty") }
-    let process = Process()
+
+    let execPath: String
+    let argv: [String]
     if executable.hasPrefix("/") {
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = Array(parts.dropFirst()) + [target.path]
+        execPath = executable
+        argv = parts + [target.path]
     } else {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = parts + [target.path]
+        execPath = "/usr/bin/env"
+        argv = [execPath] + parts + [target.path]
     }
-    try process.run()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else {
-        throw ManagerError.ipc("editor exited with status \(process.terminationStatus)")
+
+    var pid: pid_t = 0
+    let cArgv: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
+    let envPairs = environment.map { "\($0.key)=\($0.value)" }
+    let cEnv: [UnsafeMutablePointer<CChar>?] = envPairs.map { strdup($0) } + [nil]
+    let spawnResult = posix_spawn(&pid, execPath, nil, nil, cArgv, cEnv)
+    for ptr in cArgv where ptr != nil { free(ptr) }
+    for ptr in cEnv where ptr != nil { free(ptr) }
+
+    guard spawnResult == 0 else {
+        throw ManagerError.ipc("failed to launch editor \(executable): \(String(cString: strerror(spawnResult)))")
+    }
+
+    var status: Int32 = 0
+    waitpid(pid, &status, 0)
+    guard WIFEXITED(status) else {
+        throw ManagerError.ipc("editor terminated abnormally")
+    }
+    let terminationStatus = WEXITSTATUS(status)
+    guard terminationStatus == 0 else {
+        throw ManagerError.ipc("editor exited with status \(terminationStatus)")
     }
 }
 
@@ -319,9 +334,6 @@ do {
     if options.edit {
         do {
             try editUnit(options.units[0], full: options.editFull, runtime: options.editRuntime, force: options.editForce)
-            // Real `systemctl edit` reloads unit files automatically once the
-            // editor exits successfully, so the change takes effect without
-            // a separate manual `daemon-reload`.
             let reloaded = try request(IPCRequest(action: .daemonReload, units: []))
             if reloaded.exitCode != 0 {
                 if !options.quiet, let error = reloaded.error { fputs("\(error)\n", stderr) }
