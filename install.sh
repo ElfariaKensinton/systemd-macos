@@ -31,7 +31,13 @@ printf '%s\n' "Downloading systemd-macos latest release ($ARCH)..."
 curl -fsSL "$BASE_URL/$ASSET" -o "$TMP_DIR/$ASSET"
 curl -fsSL "$BASE_URL/$CHECKSUM" -o "$TMP_DIR/$CHECKSUM"
 
-( cd "$TMP_DIR" && shasum -a 256 -c "$CHECKSUM" )
+EXPECTED="$(awk '{print $1}' "$TMP_DIR/$CHECKSUM")"
+ACTUAL="$(shasum -a 256 "$TMP_DIR/$ASSET" | awk '{print $1}')"
+
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  echo "Checksum verification failed" >&2
+  exit 1
+fi
 
 tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR"
 
