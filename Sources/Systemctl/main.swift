@@ -356,6 +356,23 @@ do {
         exit(0)
     }
 
+    if now && options.action == .disable {
+        let stopped = try request(IPCRequest(action: .stop, units: options.units))
+        if stopped.exitCode != 0 {
+            if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
+            exit(stopped.exitCode)
+        }
+        if !options.quiet, !stopped.output.isEmpty { print(stopped.output) }
+
+        let disabled = try request(IPCRequest(action: .disable, units: options.units))
+        if disabled.exitCode != 0 {
+            if !options.quiet, let error = disabled.error { fputs("\(error)\n", stderr) }
+            exit(disabled.exitCode)
+        }
+        if !options.quiet, !disabled.output.isEmpty { print(disabled.output) }
+        exit(0)
+    }
+
     let response = try request(IPCRequest(action: options.action, units: options.units))
 
     // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
