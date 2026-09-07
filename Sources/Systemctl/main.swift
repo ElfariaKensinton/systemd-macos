@@ -130,24 +130,35 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
     }
 
     let target: URL
-    if full {
-        target = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory).appendingPathComponent(normalized)
-        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: target.path) {
-            if let source = [systemPath, vendorPath].first(where: { fm.fileExists(atPath: $0.path) }) {
-                try fm.copyItem(at: source, to: target)
-            } else {
-                try "[Unit]\n\n[Service]\nType=simple\nExecStart=\n\n".write(to: target, atomically: true, encoding: .utf8)
+    do {
+        if full {
+            target = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory).appendingPathComponent(normalized)
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: target.path) {
+                if let source = [systemPath, vendorPath].first(where: { fm.fileExists(atPath: $0.path) }) {
+                    try fm.copyItem(at: source, to: target)
+                } else {
+                    try "[Unit]\n\n[Service]\nType=simple\nExecStart=\n\n".write(to: target, atomically: true, encoding: .utf8)
+                }
+            }
+        } else {
+            let directory = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory)
+                .appendingPathComponent("\(normalized).d", isDirectory: true)
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            target = directory.appendingPathComponent("override.conf")
+            if !fm.fileExists(atPath: target.path) {
+                try "[Unit]\n\n[Service]\n\n".write(to: target, atomically: true, encoding: .utf8)
             }
         }
-    } else {
-        let directory = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory)
-            .appendingPathComponent("\(normalized).d", isDirectory: true)
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        target = directory.appendingPathComponent("override.conf")
-        if !fm.fileExists(atPath: target.path) {
-            try "[Unit]\n\n[Service]\n\n".write(to: target, atomically: true, encoding: .utf8)
+    } catch {
+        // /etc/systemd/system and /var/run/systemd/system are root-owned,
+        // so an unprivileged edit attempt fails here with some flavor of
+        // EACCES surfaced through NSError. Give a clear, actionable message
+        // instead of a raw Cocoa/POSIX error the user has to decode.
+        if String(describing: error).localizedCaseInsensitiveContains("permission denied") {
+            throw ManagerError.ipc("permission denied writing unit file — try again with sudo")
         }
+        throw error
     }
 
     let environment = ProcessInfo.processInfo.environment
@@ -308,6 +319,14 @@ do {
     if options.edit {
         do {
             try editUnit(options.units[0], full: options.editFull, runtime: options.editRuntime, force: options.editForce)
+            // Real `systemctl edit` reloads unit files automatically once the
+            // editor exits successfully, so the change takes effect without
+            // a separate manual `daemon-reload`.
+            let reloaded = try request(IPCRequest(action: .daemonReload, units: []))
+            if reloaded.exitCode != 0 {
+                if !options.quiet, let error = reloaded.error { fputs("\(error)\n", stderr) }
+                exit(reloaded.exitCode)
+            }
             if !options.quiet { print("Editing \(options.units[0].hasSuffix(".service") ? options.units[0] : options.units[0] + ".service")") }
             exit(0)
         } catch {
