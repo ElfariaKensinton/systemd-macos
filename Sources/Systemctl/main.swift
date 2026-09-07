@@ -359,11 +359,21 @@ do {
     let response = try request(IPCRequest(action: options.action, units: options.units))
 
     // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
-    // *state* (not a transport failure), so preserve the human-readable error
-    // from the daemon before exiting with the state code.
-    if response.exitCode != 0 {
+    // *state* (e.g. inactive/disabled), not a command failure. Real systemd
+    // still prints the status output for an inactive unit — it just exits
+    // non-zero. Only actions where a non-zero exit code always means the
+    // command itself failed should skip printing output before exiting.
+    let isStateReflectingAction = options.action == .status
+        || options.action == .isActive
+        || options.action == .isEnabled
+
+    if response.exitCode != 0 && !isStateReflectingAction {
         if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
+    }
+
+    if response.exitCode != 0, let error = response.error {
+        if !options.quiet { fputs("\(error)\n", stderr) }
     }
 
     if !response.output.isEmpty {
