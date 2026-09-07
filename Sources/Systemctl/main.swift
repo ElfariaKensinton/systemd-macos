@@ -249,11 +249,11 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-F", "-R", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
-        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "--no-init" }
+        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-F" || $0 == "-R" || $0 == "--no-init" }
         if command.count == 1 {
-            command.append(contentsOf: ["-F", "-R", "-X"])
+            command.append("-X")
         }
     }
 
@@ -360,29 +360,15 @@ do {
     let response = try request(IPCRequest(action: options.action, units: options.units))
 
     // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
-    // *state* (e.g. inactive), not a command failure — real systemd still prints
-    // the status/output in that case and just exits non-zero. Only bail out early
-    // (without printing output) when there's an actual error, or for actions
-    // where a non-zero exit code always means the command itself failed.
-    let isStateReflectingAction = options.action == .status
-        || options.action == .isActive
-        || options.action == .isEnabled
-
-    if response.exitCode != 0 && !isStateReflectingAction {
+    // *state* (not a transport failure), so preserve the human-readable error
+    // from the daemon before exiting with the state code.
+    if response.exitCode != 0 {
         if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
     }
 
-    if response.exitCode != 0, let error = response.error {
-        // Even for state-reflecting actions, surface a genuine error if present.
-        if !options.quiet { fputs("\(error)\n", stderr) }
-    }
-
     if !response.output.isEmpty {
         outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
-    }
-    if !options.quiet && response.statuses.isEmpty && response.output.isEmpty && response.exitCode == 0 {
-        print("OK")
     }
 
     exit(response.exitCode)
