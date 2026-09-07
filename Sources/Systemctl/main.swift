@@ -11,6 +11,10 @@ struct CLIOptions {
     var noLegend = false
     var noPager = false
     var plain = false
+    var edit = false
+    var editFull = false
+    var editRuntime = false
+    var editForce = false
 }
 
 func usage() -> Never {
@@ -26,6 +30,7 @@ func usage() -> Never {
     print("  status UNIT...          Show runtime status")
     print("  enable UNIT...          Enable units")
     print("  disable UNIT...         Disable units")
+    print("  edit UNIT               Edit unit drop-in")
     print("  is-active UNIT...       Check whether units are active")
     print("  is-enabled UNIT...      Check whether units are enabled")
     print("  daemon-reload           Reload unit files")
@@ -36,6 +41,9 @@ func usage() -> Never {
     print("")
     print("Options:")
     print("  --now                   Enable/disable and immediately start/stop")
+    print("  --full                  Edit the full unit file instead of a drop-in")
+    print("  --runtime               Make the edit runtime-only")
+    print("  --force                 Create a missing unit when editing")
     print("  --quiet, -q             Suppress successful output")
     print("  --no-legend             Omit headers")
     print("  --no-pager              Disable the pager")
@@ -54,6 +62,9 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
     var noPager = false
     var plain = false
     var now = false
+    var editFull = false
+    var editRuntime = false
+    var editForce = false
     var index = 0
 
     while index < tokens.count {
@@ -74,6 +85,15 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
         case "--now":
             now = true
             tokens.remove(at: index)
+        case "--full":
+            editFull = true
+            tokens.remove(at: index)
+        case "--runtime":
+            editRuntime = true
+            tokens.remove(at: index)
+        case "--force":
+            editForce = true
+            tokens.remove(at: index)
         case "--version":
             print("systemctl 0.1.0")
             exit(0)
@@ -84,10 +104,69 @@ func parseArguments(_ args: [String]) throws -> (CLIOptions, Bool) {
         }
     }
 
-    guard let actionString = tokens.first, let action = SystemctlAction(rawValue: actionString) else { usage() }
+    guard let actionString = tokens.first else { usage() }
+    if actionString == "edit" {
+        tokens.removeFirst()
+        guard tokens.count == 1 else { usage() }
+        return (CLIOptions(action: .status, units: tokens, quiet: quiet, noLegend: noLegend, noPager: noPager,
+                           plain: plain, edit: true, editFull: editFull, editRuntime: editRuntime, editForce: editForce), now)
+    }
+
+    guard let action = SystemctlAction(rawValue: actionString) else { usage() }
     tokens.removeFirst()
     if action != .daemonReload && action != .listUnits && action != .listUnitFiles && tokens.isEmpty { usage() }
     return (CLIOptions(action: action, units: tokens, quiet: quiet, noLegend: noLegend, noPager: noPager, plain: plain), now)
+}
+
+func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
+    let normalized = name.hasSuffix(".service") ? name : name + ".service"
+    let fm = FileManager.default
+    let systemPath = SystemdPaths.systemUnitDirectory.appendingPathComponent(normalized)
+    let vendorPath = SystemdPaths.vendorUnitDirectory.appendingPathComponent(normalized)
+    let baseExists = fm.fileExists(atPath: systemPath.path) || fm.fileExists(atPath: vendorPath.path)
+
+    if !baseExists && !force {
+        throw ManagerError.unitNotFound(normalized)
+    }
+
+    let target: URL
+    if full {
+        target = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory).appendingPathComponent(normalized)
+        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: target.path) {
+            if let source = [systemPath, vendorPath].first(where: { fm.fileExists(atPath: $0.path) }) {
+                try fm.copyItem(at: source, to: target)
+            } else {
+                try "[Unit]\n\n[Service]\nType=simple\nExecStart=\n\n".write(to: target, atomically: true, encoding: .utf8)
+            }
+        }
+    } else {
+        let directory = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory)
+            .appendingPathComponent("\(normalized).d", isDirectory: true)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        target = directory.appendingPathComponent("override.conf")
+        if !fm.fileExists(atPath: target.path) {
+            try "[Unit]\n\n[Service]\n\n".write(to: target, atomically: true, encoding: .utf8)
+        }
+    }
+
+    let environment = ProcessInfo.processInfo.environment
+    let editorSpec = environment["SYSTEMD_EDITOR"] ?? environment["EDITOR"] ?? environment["VISUAL"] ?? "vi"
+    let parts = editorSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    guard let executable = parts.first else { throw ManagerError.ipc("editor is empty") }
+    let process = Process()
+    if executable.hasPrefix("/") {
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = Array(parts.dropFirst()) + [target.path]
+    } else {
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = parts + [target.path]
+    }
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        throw ManagerError.ipc("editor exited with status \(process.terminationStatus)")
+    }
 }
 
 func connect() throws -> Int32 {
@@ -225,6 +304,17 @@ var quietOnError = false
 do {
     let (options, now) = try parseArguments(CommandLine.arguments)
     quietOnError = options.quiet
+
+    if options.edit {
+        do {
+            try editUnit(options.units[0], full: options.editFull, runtime: options.editRuntime, force: options.editForce)
+            if !options.quiet { print("Editing \(options.units[0].hasSuffix(".service") ? options.units[0] : options.units[0] + ".service")") }
+            exit(0)
+        } catch {
+            if !options.quiet { fputs("systemctl: \(error)\n", stderr) }
+            exit(1)
+        }
+    }
 
     if now && options.action == .enable {
         let enabled = try request(IPCRequest(action: .enable, units: options.units))
