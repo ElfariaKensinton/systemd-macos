@@ -76,7 +76,7 @@ The resulting binaries are:
 The release installer is `scripts/install.sh`. It downloads a release archive for the current Mac architecture, verifies its SHA-256 checksum, installs the binaries and completions, creates the systemd-macos state/unit directories, and registers `/Library/LaunchDaemons/com.elfaria.systemd-macos.plist` with `launchd`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash
+curl -fsSL https://elfariakensinton.github.io/systemd-macos/install.sh | bash
 ```
 
 The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`) and uses `sudo` for system-level installation and LaunchDaemon registration.
