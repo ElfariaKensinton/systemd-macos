@@ -396,6 +396,6 @@ do {
 
     exit(response.exitCode)
 } catch {
-    if !quietOnError { fputs("systemd-macos: \(error)\n", stderr) }
+    if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
     exit(1)
 }
