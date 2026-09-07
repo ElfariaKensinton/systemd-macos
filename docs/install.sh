@@ -22,7 +22,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-ASSET="systemd-macos-latest-${ARCH}.tar.gz"
+ASSET="systemd-macos-${ARCH}.tar.gz"
 CHECKSUM="${ASSET}.sha256"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
