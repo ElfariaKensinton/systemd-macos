@@ -249,11 +249,10 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R", "-F", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
-        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-F" || $0 == "--no-init" }
-        if !command.contains("-R") { command.append("-R") }
-        if !command.contains("-X") { command.append("-X") }
+        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-R" || $0 == "-F" || $0 == "--no-init" }
+        command.append(contentsOf: ["-R", "-F", "-X"].filter { !command.contains($0) })
     }
 
     guard let executable = command.first else {
@@ -375,11 +374,6 @@ do {
 
     let response = try request(IPCRequest(action: options.action, units: options.units))
 
-    // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
-    // *state* (e.g. inactive/disabled), not a command failure. Real systemd
-    // still prints the status output for an inactive unit — it just exits
-    // non-zero. Only actions where a non-zero exit code always means the
-    // command itself failed should skip printing output before exiting.
     let isStateReflectingAction = options.action == .status
         || options.action == .isActive
         || options.action == .isEnabled
