@@ -54,12 +54,12 @@ The resulting binaries are:
 .build/release/systemctl
 ```
 
-## Install from GitHub Releases
+## Install from GitHub Pages
 
 The recommended installation method downloads a verified binary for the current Mac architecture from the latest GitHub Release, installs the daemon, and registers its LaunchDaemon so it starts at boot.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ElfariaKensinton/systemd-macos/main/scripts/install.sh | bash
+curl -fsSL https://elfariakensinton.github.io/systemd-macos/install.sh | bash
 ```
 
 The installer supports Apple Silicon (`arm64`) and Intel (`x86_64`), verifies the SHA-256 checksum published with the release, and uses the stable `releases/latest/download` asset aliases. It invokes `sudo` only for the system-level installation and LaunchDaemon registration steps.
