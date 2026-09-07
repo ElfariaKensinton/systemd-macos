@@ -145,6 +145,19 @@ if arguments.user != nil || arguments.group != nil {
     guard setuid(targetUID) == 0 else {
         fail("setuid failed: \(String(cString: strerror(errno)))")
     }
+
+    // Do not trust a zero return code alone. If setuid/setgid somehow left
+    // any of the real/effective IDs un-dropped (a kernel edge case, or a
+    // future refactor that reorders these calls), the exec'd command would
+    // silently inherit root. Verifying afterwards costs nothing and turns a
+    // potential silent privilege-drop failure into a hard, loud one — the
+    // same defense real systemd applies before handing off to ExecStart.
+    guard getuid() == targetUID, geteuid() == targetUID else {
+        fail("privilege drop did not take effect: uid is \(getuid())/\(geteuid()), expected \(targetUID)", code: 77)
+    }
+    guard getgid() == targetGID, getegid() == targetGID else {
+        fail("privilege drop did not take effect: gid is \(getgid())/\(getegid()), expected \(targetGID)", code: 77)
+    }
 }
 
 let shell = strdup("/bin/sh")!
