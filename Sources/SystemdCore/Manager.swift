@@ -30,7 +30,7 @@ public final class ServiceManager: @unchecked Sendable {
     private var enabled: Set<String> = []
     private let unitDirectories: [URL]
 
-    public init(unitDirectories: [URL] = [SystemdPaths.systemUnitDirectory, SystemdPaths.vendorUnitDirectory]) {
+    public init(unitDirectories: [URL] = [SystemdPaths.vendorUnitDirectory, SystemdPaths.systemUnitDirectory, SystemdPaths.runtimeUnitDirectory]) {
         self.unitDirectories = unitDirectories
         load()
     }
