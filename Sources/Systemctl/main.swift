@@ -237,30 +237,23 @@ func request(_ request: IPCRequest) throws -> IPCResponse {
     return try codec.decode(IPCResponse.self, from: responseData)
 }
 
-func printStatuses(_ statuses: [UnitStatus], noLegend: Bool) {
-    if !noLegend { print("UNIT\tLOAD\tACTIVE\tSUB\tDESCRIPTION") }
-    for status in statuses {
-        let description = status.description ?? ""
-        print("\(status.name)\t\(status.loadState)\t\(status.activeState)\t\(status.subState)\t\(description)")
-    }
-}
-
-func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus]) {
+func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitStatus], usePager: Bool) {
     guard !output.isEmpty else { return }
     let formatted = colorizedStatusOutput(output, statuses: statuses, plain: plain)
 
     let environment = ProcessInfo.processInfo.environment
     let pagerSpec = (environment["SYSTEMD_PAGER"] ?? environment["PAGER"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-    if noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
+    if !usePager || noPager || pagerSpec == "cat" || isatty(STDOUT_FILENO) != 1 || isatty(STDIN_FILENO) != 1 {
         print(formatted, terminator: formatted.hasSuffix("\n") ? "" : "\n")
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
-        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-X" || $0 == "--no-init" }
-        if command.count == 1 { command.append("-R") }
+        command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-F" || $0 == "--no-init" }
+        if !command.contains("-R") { command.append("-R") }
+        if !command.contains("-X") { command.append("-X") }
     }
 
     guard let executable = command.first else {
@@ -363,18 +356,48 @@ do {
         exit(0)
     }
 
+    if now && options.action == .disable {
+        let stopped = try request(IPCRequest(action: .stop, units: options.units))
+        if stopped.exitCode != 0 {
+            if !options.quiet, let error = stopped.error { fputs("\(error)\n", stderr) }
+            exit(stopped.exitCode)
+        }
+        if !options.quiet, !stopped.output.isEmpty { print(stopped.output) }
+
+        let disabled = try request(IPCRequest(action: .disable, units: options.units))
+        if disabled.exitCode != 0 {
+            if !options.quiet, let error = disabled.error { fputs("\(error)\n", stderr) }
+            exit(disabled.exitCode)
+        }
+        if !options.quiet, !disabled.output.isEmpty { print(disabled.output) }
+        exit(0)
+    }
+
     let response = try request(IPCRequest(action: options.action, units: options.units))
-    if response.exitCode != 0 {
+
+    // For status/is-active/is-enabled, a non-zero exitCode reflects the unit's
+    // *state* (e.g. inactive/disabled), not a command failure. Real systemd
+    // still prints the status output for an inactive unit — it just exits
+    // non-zero. Only actions where a non-zero exit code always means the
+    // command itself failed should skip printing output before exiting.
+    let isStateReflectingAction = options.action == .status
+        || options.action == .isActive
+        || options.action == .isEnabled
+
+    if response.exitCode != 0 && !isStateReflectingAction {
         if !options.quiet, let error = response.error { fputs("\(error)\n", stderr) }
         exit(response.exitCode)
     }
 
-    if !response.statuses.isEmpty {
-        printStatuses(response.statuses, noLegend: options.noLegend)
+    if response.exitCode != 0, let error = response.error {
+        if !options.quiet { fputs("\(error)\n", stderr) }
     }
+
     if !response.output.isEmpty {
-        outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses)
+        outputStatus(response.output, noPager: options.noPager, plain: options.plain, statuses: response.statuses, usePager: options.action == .status)
     }
+
+    exit(response.exitCode)
 } catch {
     if !quietOnError { fputs("systemctl: \(error)\n", stderr) }
     exit(1)
