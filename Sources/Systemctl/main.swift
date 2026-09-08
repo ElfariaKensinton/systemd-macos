@@ -249,10 +249,10 @@ func outputStatus(_ output: String, noPager: Bool, plain: Bool, statuses: [UnitS
         return
     }
 
-    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R", "-F", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    var command = pagerSpec.isEmpty ? ["/usr/bin/less", "-R", "-X"] : pagerSpec.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     if command.first?.hasSuffix("less") == true {
         command.removeAll { $0 == "-S" || $0 == "--chop-long-lines" || $0 == "-R" || $0 == "-F" || $0 == "--no-init" }
-        command.append(contentsOf: ["-R", "-F", "-X"].filter { !command.contains($0) })
+        command.append(contentsOf: ["-R", "-X"].filter { !command.contains($0) })
     }
 
     guard let executable = command.first else {
