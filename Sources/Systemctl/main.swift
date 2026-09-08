@@ -341,7 +341,14 @@ do {
         } catch let ManagerError.unitNotFound(unit) where !options.editForce {
             if !options.quiet {
                 let forceCommand = options.editFull ? "systemctl edit --force --full \(unit)" : "systemctl edit --force \(unit)"
-                fputs("No files found for \(unit).\nRun '\(forceCommand)' to create a new unit.\n", stderr)
+                let redBold = "\u{001B}[1;38;2;240;119;109m"
+                let reset = "\u{001B}[0m"
+                if isatty(STDERR_FILENO) == 1 {
+                    fputs("\(redBold)No files found for \(unit).\(reset)\n", stderr)
+                } else {
+                    fputs("No files found for \(unit).\n", stderr)
+                }
+                fputs("Run '\(forceCommand)' to create a new unit.\n", stderr)
             }
             exit(1)
         } catch {
