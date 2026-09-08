@@ -338,6 +338,12 @@ do {
             }
             if !options.quiet { print("Editing \(options.units[0].hasSuffix(".service") ? options.units[0] : options.units[0] + ".service")") }
             exit(0)
+        } catch let ManagerError.unitNotFound(unit) where !options.editForce {
+            if !options.quiet {
+                let forceCommand = options.editFull ? "systemctl edit --force --full \(unit)" : "systemctl edit --force \(unit)"
+                fputs("No files found for \(unit).\nRun '\(forceCommand)' to create a new unit.\n", stderr)
+            }
+            exit(1)
         } catch {
             if !options.quiet { fputs("systemctl: \(error)\n", stderr) }
             exit(1)
