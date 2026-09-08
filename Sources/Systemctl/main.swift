@@ -123,7 +123,12 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
     let fm = FileManager.default
     let systemPath = SystemdPaths.systemUnitDirectory.appendingPathComponent(normalized)
     let vendorPath = SystemdPaths.vendorUnitDirectory.appendingPathComponent(normalized)
-    let baseExists = fm.fileExists(atPath: systemPath.path) || fm.fileExists(atPath: vendorPath.path)
+    let runtimePath = SystemdPaths.runtimeUnitDirectory.appendingPathComponent(normalized)
+
+    // Resolve installed unit files directly instead of relying on the daemon's loaded-unit cache.
+    let source: URL? = [systemPath, vendorPath].first(where: { fm.fileExists(atPath: $0.path) })
+    let runtimeExists = fm.fileExists(atPath: runtimePath.path)
+    let baseExists = source != nil || runtimeExists
 
     if !baseExists && !force {
         throw ManagerError.unitNotFound(normalized)
@@ -135,7 +140,7 @@ func editUnit(_ name: String, full: Bool, runtime: Bool, force: Bool) throws {
             target = (runtime ? SystemdPaths.runtimeUnitDirectory : SystemdPaths.systemUnitDirectory).appendingPathComponent(normalized)
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !fm.fileExists(atPath: target.path) {
-                if let source = [systemPath, vendorPath].first(where: { fm.fileExists(atPath: $0.path) }) {
+                if let source {
                     try fm.copyItem(at: source, to: target)
                 } else {
                     try "[Unit]\n\n[Service]\nType=simple\nExecStart=\n\n".write(to: target, atomically: true, encoding: .utf8)
