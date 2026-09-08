@@ -5,6 +5,18 @@ import SystemdCore
 import Darwin
 #endif
 
+func fputs(_ string: String, _ stream: UnsafeMutablePointer<FILE>) -> Int32 {
+    if string.hasPrefix("No files found for ") {
+        let red = "\u{001B}[38;2;240;119;109m"
+        let reset = "\u{001B}[0m"
+        let lines = string.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        let first = red + String(lines[0]) + reset
+        let colored = lines.count > 1 ? first + "\n" + lines[1] : first
+        return colored.withCString { Darwin.fputs($0, stream) }
+    }
+    return string.withCString { Darwin.fputs($0, stream) }
+}
+
 func colorizedStatusOutput(_ output: String, statuses: [UnitStatus], plain: Bool) -> String {
     guard !plain, isatty(STDOUT_FILENO) == 1 else { return output }
 
