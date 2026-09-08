@@ -122,6 +122,7 @@ public final class ServiceManager: @unchecked Sendable {
         guard let found = units[normalized] else { lock.unlock(); throw ManagerError.unitNotFound(normalized) }
         unit = found
         process = runtime[normalized]?.process
+        let trackedPID = runtime[normalized]?.mainPID ?? 0
         runtime[normalized]?.stopRequested = true
         lock.unlock()
 
@@ -145,6 +146,24 @@ public final class ServiceManager: @unchecked Sendable {
                 #endif
                 process.waitUntilExit()
             }
+        } else if trackedPID > 0 {
+            // The Process object reference was missing/stale (e.g. cleared by a
+            // concurrent handleExit, or from a prior race before launch() was
+            // guarded), but we still have the last-known PID. Fall back to signaling
+            // it directly by PID so a leaked child (and anything it opened, like a
+            // utun interface) doesn't survive this stop() call unnoticed.
+            #if canImport(Darwin)
+            if kill(trackedPID, 0) == 0 {
+                _ = kill(trackedPID, unit.service.killSignal)
+                let deadline = Date().addingTimeInterval(unit.service.timeoutStopSec)
+                while kill(trackedPID, 0) == 0 && Date() < deadline {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                }
+                if kill(trackedPID, 0) == 0 {
+                    _ = kill(trackedPID, SIGKILL)
+                }
+            }
+            #endif
         }
 
         lock.lock()
@@ -210,6 +229,23 @@ public final class ServiceManager: @unchecked Sendable {
     }
 
     private func launch(_ unit: UnitFile) throws {
+        // Guard against concurrent/re-entrant launches of the same unit. Without this,
+        // two overlapping start()/restart() calls (or a race between a Restart= handler
+        // and an external systemctl call) can each construct their own Process(), and the
+        // second write to runtime[unit.name] silently drops the reference to the
+        // first still-running process. That first process (and anything it opened,
+        // e.g. a utun/tunnel interface) is then orphaned: still alive, but no longer
+        // tracked, so stop()/restart() can never find or kill it again.
+        lock.lock()
+        if let existing = runtime[unit.name]?.process, existing.isRunning {
+            lock.unlock()
+            return
+        }
+        // Claim the slot immediately (before any blocking work below) so a second
+        // caller arriving while execStartPre/etc. run also sees this as in-flight.
+        runtime[unit.name] = Runtime(state: "activating", result: "success", mainPID: 0)
+        lock.unlock()
+
         try validatePermissionConfiguration(unit)
         for command in unit.service.execStartPre {
             _ = try run(command, unit: unit)
